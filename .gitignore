@@ -1,0 +1,144 @@
+# ============================================================
+#  Subtra — .gitignore
+#  Repoda yalnızca kaynak kod bulunur. Model, video, altyazı ve
+#  kimlik bilgileri ASLA commit edilmez.
+# ============================================================
+
+# ---- Model dosyaları (kullanıcı indirir) -------------------
+models/
+*.bin
+*.onnx
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+sentencepiece.bpe.model
+shared_vocabulary.txt
+vocabulary.txt
+tokenizer.json
+tokenizer_config.json
+special_tokens_map.json
+
+# ---- FFmpeg ikilileri (otomatik indirilir) -----------------
+ffmpeg/
+tools/ffmpeg/
+*.exe
+*.dll
+
+# ---- Medya dosyaları --------------------------------------
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.flv
+*.wmv
+*.m4v
+*.mpg
+*.mpeg
+*.ts
+*.m2ts
+
+# ---- Altyazılar (çıktı ve test verisi) --------------------
+*.srt
+*.vtt
+*.ass
+*.ssa
+*.sub
+*.idx
+
+# ---- Ses dosyaları ----------------------------------------
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+*.ogg
+*.opus
+*.wma
+
+# ---- API anahtarları ve gizli bilgiler --------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*_apikey*
+*_api_key*
+secrets.json
+credentials.json
+auth.json
+config.local.json
+*.secret
+
+# ---- Kullanıcı ayarları -----------------------------------
+settings.json
+user_settings.json
+
+# ---- Python -------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ---- Sanal ortamlar ---------------------------------------
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ---- Test ve kapsam ---------------------------------------
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ---- Paketleme / dağıtım ----------------------------------
+*.zip
+Subtra-portable.zip
+*.spec.bak
+*.manifest
+
+# ---- Editör / IDE -----------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Geçici / log -----------------------------------------
+*.log
+logs/
+cache/
+temp/
+tmp/
+*.tmp
+*.bak
+*.orig
+*_tr_2.srt

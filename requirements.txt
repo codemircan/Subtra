@@ -1,0 +1,7 @@
+PySide6>=6.5,<7
+faster-whisper>=1.1
+ctranslate2>=4.4
+sentencepiece>=0.2
+requests>=2.31
+tokenizers>=0.15
+psutil>=5.9
