@@ -1,341 +1,351 @@
 # Subtra
 
-Windows 10/11 üzerinde **GPU gerektirmeden (yalnızca CPU)** çalışan masaüstü
-altyazı uygulaması. Video seçersiniz; uygulama konuşmanın dilini kendisi bulur,
-metne çevirir, seçtiğiniz dile (21 dil) çevirir, `.srt` üretir ve
-isterseniz altyazıyı videoya gömer.
+A desktop subtitle app for Windows 10/11 that runs **entirely on CPU — no GPU
+required**. Pick a video and Subtra detects the spoken language by itself,
+transcribes it, translates it into one of 21 languages, writes an `.srt`, and
+optionally burns the subtitles into the video.
 
-Her şey **yerel ve ücretsiz**: ücretli servis, API anahtarı, kayıt yok.
-İnternet yalnızca model/FFmpeg **ilk** indirmesinde kullanılır.
+Everything is **local and free**: no paid services, no API keys, no sign-up.
+The network is used only for the **first** model/FFmpeg download.
 
-> **Depo hakkında:** Bu repoda yalnızca kaynak kod bulunur. Model dosyaları
-> (`models/`), FFmpeg (`ffmpeg/`), video ve altyazı dosyaları repoya
-> **dahil edilmez** — hepsi ilk çalıştırmada otomatik indirilir veya sizin
-> tarafınızdan indirilir. Ayrıntı: [Modeller](#5-modeller-otomatik-tek-seferlik).
+**Languages:** English (this file) · [Türkçe](docs/README.tr.md)
+
+> **About this repository:** only source code lives here. Model files
+> (`models/`), FFmpeg (`ffmpeg/`), videos and subtitle files are **not**
+> committed — they are downloaded automatically on first run, or by you.
+> See [Models](#5-models-automatic-one-time).
 
 ---
 
-## Sürüm politikası
+## Version policy
 
-| Dal | İçerik |
+| Branch | Contents |
 |---|---|
-| `main` | Yalnızca **kararlı sürümler**. Her sürüm etiketlenir (`v2.0.0`). |
-| `development` | Aktif geliştirme. Kararsız olabilir. |
+| `main` | **Stable releases only.** Every release is tagged (`v2.0.1`). |
+| `development` | Active development. May be unstable. |
 
-`main` dalına doğrudan commit atılmaz; değişiklikler `development` dalında
-geliştirilip kararlı hâle geldiğinde `main`'e alınır ve etiketlenir.
+`main` never receives direct commits. Work happens on `development`, and once
+it is stable it is fast-forwarded into `main` and tagged.
 
 ```bash
-git checkout development     # geliştirme
-git checkout main            # kararlı sürüm
+git checkout development     # development
+git checkout main            # stable release
 ```
 
 ---
 
-## 2.0'da neler yeni
+## What's new in 2.0
 
-**Dağıtım ve kararlılık**
-- FFmpeg artık elle kurulmuyor: exe'ye gömülü varsa kullanılır, yoksa
-  **ilk kullanımda otomatik indirilir** (`%LOCALAPPDATA%\Subtra\tools\ffmpeg`).
-  İki ayrı kaynak (gyan.dev + BtbN) ve ilerleme/iptal desteği var.
-- Tüm yazılabilir veriler `%LOCALAPPDATA%\Subtra` altında — Program Files'a
-  kurulumda bile izin sorunu yok. Eski `models\` klasörü otomatik tanınır.
-- Dönen log dosyası (`logs\subtra.log`, 2 MB × 3) ve **"Hata Raporunu
-  Kopyala"** / **"Raporu Kaydet…"** düğmeleri.
-- CPU thread sayısı **fiziksel çekirdeğe** göre seçilir (hyper-threading sayılmaz).
+**Distribution and reliability**
+- FFmpeg is no longer a manual install: it is used from the exe folder if
+  present, otherwise **downloaded automatically on first use**
+  (`%LOCALAPPDATA%\Subtra\tools\ffmpeg`). Two mirrors (gyan.dev + BtbN),
+  with progress and cancel support.
+- All writable data lives under `%LOCALAPPDATA%\Subtra` — no permission
+  problems even when installed into Program Files. A legacy `models\` folder
+  is detected automatically, and an old `VideoCeviri` data folder is migrated
+  so models are not re-downloaded.
+- Rotating log file (`logs\subtra.log`, 2 MB × 3) plus **"Copy error report"**
+  and **"Save report…"** buttons.
+- CPU thread count is derived from **physical cores** (hyper-threading is not
+  counted).
 
-**Altyazı kalitesi**
-- **Kelime düzeyinde zaman damgası** (`word_timestamps=True`): altyazı artık
-  kelimenin ortasından kesilmiyor.
-- Bölme kararı noktalama + sessizlik + süre sınırına göre verilir; karakter
-  sayısı yalnızca satır içi sarma için kullanılır.
-- Cümle birleştirme + çeviri sonrası oransal zaman dağıtımı.
-- **CPS (saniyedeki karakter) kuralı**: varsayılan 18. Aşan altyazı önce
-  süresi uzatılarak, yetmezse dengeli biçimde bölünerek düzeltilir.
-- **Altyazı ölçeği**: `font_size` değeri "640 piksel yükseklik" referansına
-  göre tanımlıdır ve gerçek video boyutuna ölçeklenir. libass'ın varsayılan
-  `PlayResY=288` kutusu 1918 piksel yüksek videoda yazıyı **6.7 kat** büyütüp
-  ekranı kaplıyordu; artık `PlayResX/PlayResY` video boyutuna eşitlenir.
-- **Burn-in kodlayıcı**: `crf 18` + `preset slow` + `ref=5` +
-  `aq-mode=3` + `deblock=1,1` + doğru H.264 level. Eski `crf 20 / medium /
-  ref=3 / level 4.0` kombinasyonu karanlık sahnelerde ölçülebilir bloklanma
-  üretiyordu (bkz. aşağıdaki teşhis notu).
+**Subtitle quality**
+- **Word-level timestamps** (`word_timestamps=True`): cues are no longer cut
+  through the middle of a word.
+- Split decisions use punctuation + silence + duration limits; character count
+  is only used for line wrapping.
+- Sentence merging plus proportional time distribution after translation.
+- **CPS (characters per second) rule**, default 18. Offending cues are fixed by
+  extending their duration; splitting is not used because it cannot lower CPS
+  (same characters over the same span).
+- **Subtitle scaling**: `font_size` is defined against a 640 px reference
+  height and scaled to the real video size. libass's default `PlayResY=288`
+  box made text **6.7×** larger on a 1918 px tall video, covering the screen;
+  `PlayResX/PlayResY` now match the video dimensions.
+- **Burn-in encoder**: `crf 18` + `preset slow` + `ref=5` + `aq-mode=3` +
+  `deblock=1,1` + the correct H.264 level. The old `crf 20 / medium / ref=3 /
+  level 4.0` combination produced measurable blocking in dark scenes (see the
+  diagnostics note below).
 
-**Performans**
-- Uzun videolar **10 dakikalık dilimler** hâlinde işlenir: bellek sabit kalır,
-  iptal çok daha hızlı sonuçlanır. Dilim sınırında kelime tekrarı temizlenir.
-- Transkripsiyon + çeviri **paralel (pipeline)** çalışabilir. 6+ fiziksel
-  çekirdekte otomatik açılır; altında kapalı kalır (thread'ler birbirini çalar).
+**Performance**
+- Long videos are processed in **10-minute chunks**: memory stays flat and
+  cancellation is much faster. Word repeats at chunk boundaries are removed.
+- Transcription and translation can run **in parallel (pipeline)**. Enabled
+  automatically on 6+ physical cores; kept off below that, where two models
+  fight over the same threads.
 
-**Üretkenlik**
-- **Kuyruk sekmesi**: birden fazla video ekleyin, sırayla işlensin. Modeller
-  bir kez yüklenir, tüm kuyruk boyunca bellekte kalır.
-- **SRT Çevir sekmesi**: var olan `.srt` dosyasını çevirin — transkripsiyon
-  atlanır, isteğe bağlı video ile burn-in/soft-sub yapılır. Bu sekmenin
-  **kendi hedef dil ve çıktı seçimi** vardır; Video sekmesinden bağımsızdır.
-- **Dosya adı çakışması yok**: çıktı adı hedef dili taşır (`film_tr.srt`,
-  `film_de.srt`). Aynı video farklı dillere çevrildiğinde dosyalar birbirinin
-  üzerine yazmaz.
-- **Önbellek yönetimi**: Ayarlar'da modelleri boyutlarıyla görün, seçip silin.
-
----
-
-## Özellikler
-
-- Otomatik dil tespiti (Whisper) + güven oranı göstergesi
-- Zaman damgalı transkripsiyon (faster-whisper, CPU, `int8`, VAD)
-- Cümle bazlı, bağlamı koruyan çeviri (NLLB-200 distilled 600M, CTranslate2)
-- Hedef dil: **21 dil** (Türkçe, İngilizce, Almanca, Fransızca, İspanyolca,
-  Rusça, Arapça, Çince, Japonca, Korece, Hintçe, Portekizce, İtalyanca,
-  Farsça, Endonezce, Urduca, Bengalce, Vietnamca, Tamilce, Telugu, Marathi)
-- Kaynak dil = hedef dil ise çeviri otomatik atlanır
-- Üç çıktı modu: burn-in (`libx264`, `crf 20`, ses kopyalanır), yumuşak
-  altyazı (yeniden kodlama yok), sadece `.srt`
-- Altyazı stili: boyut, renk, konum (Arial — Türkçe karakterler sorunsuz)
-- Satır başına ≈42 karakter, en fazla 2 satır; kısa altyazılar birleştirilir
-- Aşamalı ilerleme, canlı log paneli, **İptal** düğmesi
-- Tüm ağır işler `QThread` içinde — arayüz donmaz
-- Boşluklu / Türkçe karakterli yollar sorunsuz (UTF-8, `shell=True` yok)
-- Geçici dosyalar iş sonunda veya iptalde silinir
-- Türkçe hata mesajları
+**Productivity**
+- **Queue tab**: add multiple videos and process them in order. Models load
+  once and stay in memory for the whole queue.
+- **Translate SRT tab**: translate an existing `.srt` — transcription is
+  skipped, and an optional video enables burn-in/soft-sub. This tab has its
+  **own target language and output selection**, independent of the Video tab.
+- **No filename collisions**: the output name carries the target language
+  (`film_tr.srt`, `film_de.srt`). Translating one video into several languages
+  never overwrites a previous result.
+- **Cache management**: see models with their sizes in Settings, and delete
+  them.
 
 ---
 
-## Proje yapısı
+## Features
 
-| Dosya | Görev |
+- Automatic language detection (Whisper) with a confidence readout
+- Timestamped transcription (faster-whisper, CPU, `int8`, VAD)
+- Sentence-based, context-preserving translation (NLLB-200 distilled 600M via CTranslate2)
+- Target language: **21 languages** (Turkish, English, German, French, Spanish,
+  Russian, Arabic, Chinese, Japanese, Korean, Hindi, Portuguese, Italian,
+  Persian, Indonesian, Urdu, Bengali, Vietnamese, Tamil, Telugu, Marathi)
+- Translation is skipped automatically when source and target match
+- Three output modes: burn-in (`libx264`, audio copied), soft subtitles
+  (no re-encoding), or `.srt` only
+- Subtitle styling for burn-in: size, colour, position (Arial — Turkish
+  characters render correctly)
+- ≈42 characters per line, at most 2 lines; very short cues are merged
+- Staged progress bar, live log panel, **Cancel** button
+- All heavy work runs in a `QThread` — the UI never freezes
+- Spaces and non-ASCII characters in paths are fine (UTF-8, never `shell=True`)
+- Temporary files are removed on completion or cancellation
+- Turkish error messages in the UI
+
+---
+
+## Project layout
+
+| File | Purpose |
 |---|---|
-| `main.py` | Giriş noktası; DPI, bağımlılık kontrolü, log başlatma |
-| `gui.py` | PySide6 arayüzü: 4 sekme (Video / Kuyruk / SRT / Ayarlar) |
+| `main.py` | Entry point; DPI, dependency check, logging setup |
+| `gui.py` | PySide6 UI: 4 tabs (Video / Queue / SRT / Settings) |
 | `worker.py` | `ModelCache`, `JobRunner`, `VideoWorker`, `BatchWorker` |
-| `transcriber.py` | Whisper indirme/yükleme, **parçalı** transkripsiyon, kelime damgası |
-| `translator.py` | NLLB indirme/yükleme, batch çeviri, `TranslationPipeline` |
-| `subtitles.py` | Kelime tabanlı cue üretimi, satır sarma, CPS, SRT yaz/oku |
-| `ffmpeg_utils.py` | Ses çıkarma, burn-in, soft-sub, yol escape, disk kontrolü |
-| `ffmpeg_bootstrap.py` | FFmpeg bulma + **otomatik indirme** |
-| `app_paths.py` | `%LOCALAPPDATA%` yolları, eski klasör tanıma |
-| `hardware.py` | Fiziksel çekirdek/RAM, thread bütçesi, model önerisi |
-| `logging_setup.py` | Dönen dosya logu + arayüz kuyruğu |
-| `error_report.py` | Kopyalanabilir hata raporu |
-| `errors.py` | Ortak istisna tipleri |
-| `languages.py` | Whisper → NLLB eşlemesi, 21 hedef dil, dosya adı ekleri |
-| `Subtra.spec` / `build.ps1` | PyInstaller paketleme |
-| `requirements.txt` | Python bağımlılıkları |
-| `test/` | Doğrulama betikleri |
+| `transcriber.py` | Whisper download/load, **chunked** transcription, word timestamps |
+| `translator.py` | NLLB download/load, batch translation, `TranslationPipeline` |
+| `subtitles.py` | Word-based cue building, wrapping, CPS, SRT read/write |
+| `ffmpeg_utils.py` | Audio extraction, burn-in, soft-sub, path escaping, disk checks |
+| `ffmpeg_bootstrap.py` | FFmpeg discovery + **automatic download** |
+| `app_paths.py` | `%LOCALAPPDATA%` paths, legacy folder migration |
+| `hardware.py` | Physical cores/RAM, thread budget, model recommendation |
+| `logging_setup.py` | Rotating file log + UI queue |
+| `error_report.py` | Copyable error report |
+| `errors.py` | Shared exception types |
+| `languages.py` | Whisper → NLLB mapping, 21 target languages, filename suffixes |
+| `Subtra.spec` / `build.ps1` | PyInstaller packaging |
+| `requirements.txt` | Python dependencies |
+| `test/` | Verification scripts |
 
 ---
 
-## 1. Python kurulumu
+## 1. Python
 
-Python 3.10 – 3.14 desteklenir (3.13 ve 3.14 ile test edildi).
+Python 3.10 – 3.14 is supported (tested on 3.13 and 3.14).
 
 ```powershell
 py --version
 ```
 
-Sanal ortam (önerilir):
+Virtual environment (recommended):
 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-PowerShell engelliyorsa:
+If PowerShell blocks scripts:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-## 2. Bağımlılıklar
+## 2. Dependencies
 
 ```powershell
 py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
 ```
 
-## 3. Visual C++ Redistributable (çok önemli)
+## 3. Visual C++ Redistributable (critical)
 
-Çeviri motoru **CTranslate2** yerel bir C++ kütüphanesidir. Windows'ta eski bir
-`MSVCP140.dll` (ör. 14.29) varsa model yüklenirken uygulama **aniden kapanır**
-(hata mesajı çıkmaz). Bu makinede tam olarak bu sorun yaşandı.
+The translation engine **CTranslate2** is a native C++ library. On Windows, an
+old `MSVCP140.dll` (e.g. 14.29) makes the app **exit silently** while a model
+loads — no error message. This machine hit exactly that problem.
 
 ```powershell
 winget install --id Microsoft.VCRedist.2015+.x64 -e
 ```
 
-veya elle: <https://aka.ms/vs/17/release/vc_redist.x64.exe> → **yeniden başlatın**.
+Or manually: <https://aka.ms/vs/17/release/vc_redist.x64.exe> → **reboot**.
 
-Kontrol:
+Verify:
 
 ```powershell
 (Get-Item C:\Windows\System32\MSVCP140.dll).VersionInfo.FileVersion
 ```
 
-**14.30 veya üzeri** olmalı. Uygulama bunu Ayarlar → *Çeviri motoru* →
-**Kontrol Et** ile ayrı bir süreçte test eder ve gerekirse Türkçe açıklama
-gösterir.
+It must be **14.30 or newer**. The app checks this itself via
+Settings → *Translation engine* → **Check**, probing in a separate process, and
+shows a Turkish explanation if something is wrong.
 
 ## 4. FFmpeg
 
-**Elle bir şey yapmanız gerekmiyor.** Uygulama sırayla şuraya bakar:
+**You do not need to install it manually.** The app looks in this order:
 
-1. Ayarlar'da seçtiğiniz yol
-2. Exe yanındaki `ffmpeg\bin\`
-3. `%LOCALAPPDATA%\Subtra\tools\ffmpeg\bin` (daha önce indirilmiş)
+1. The path chosen in Settings
+2. `ffmpeg\bin\` next to the exe
+3. `%LOCALAPPDATA%\Subtra\tools\ffmpeg\bin` (previously downloaded)
 4. `PATH`
 
-Hiçbiri yoksa Ayarlar → **FFmpeg'i İndir** (~90 MB) veya elle **ffmpeg.exe
-Yolu Seç…**. İndirme arka planda çalışır, arayüz donmaz.
+If none is found, use Settings → **Download FFmpeg** (~90 MB) or point at
+`ffmpeg.exe` manually. The download runs in the background; the UI stays
+responsive.
 
-> `ffmpeg.exe` ve `ffprobe.exe` **aynı klasörde** olmalıdır.
+> `ffmpeg.exe` and `ffprobe.exe` must be in the **same folder**.
 
-## 5. Modeller (otomatik, tek seferlik)
+## 5. Models (automatic, one-time)
 
-İlk kullanımda indirilir, `%LOCALAPPDATA%\Subtra\models` altına yazılır
-(eski bir `models\` klasörünüz varsa o kullanılır):
+Downloaded on first use into `%LOCALAPPDATA%\Subtra\models` (a legacy `models\`
+folder is used if present):
 
-| Model | Boyut | Ne zaman |
+| Model | Size | When |
 |---|---|---|
-| `faster-whisper-tiny` | ~75 MB | tiny seçilirse |
-| `faster-whisper-base` | ~145 MB | base seçilirse |
-| `faster-whisper-small` | ~484 MB | small |
-| `faster-whisper-medium` | ~1.5 GB | medium |
-| `nllb-200-distilled-600M-ct2-int8` | ~615 MB | ilk çeviride |
+| `faster-whisper-tiny` | ~75 MB | if `tiny` is selected |
+| `faster-whisper-base` | ~145 MB | if `base` is selected |
+| `faster-whisper-small` | ~484 MB | `small` |
+| `faster-whisper-medium` | ~1.5 GB | `medium` |
+| `nllb-200-distilled-600M-ct2-int8` | ~615 MB | on first translation |
 
-İndirme tamamlandıktan sonra program **tamamen çevrimdışı** çalışır.
-Ayarlar sekmesinden modelleri görüp silebilirsiniz.
+Once downloaded, the app works **fully offline**. Models can be inspected and
+deleted from the Settings tab.
 
 ---
 
-## Kullanım
+## Usage
 
 ```powershell
 py main.py
 ```
 
-veya `calistir.bat` dosyasına çift tıklayın.
+or double-click `calistir.bat`.
 
-### Video sekmesi
-1. Videoyu sürükleyip bırakın veya **Dosya Seç…**
-2. **Whisper modeli** (öneri donanıma göre otomatik seçilir)
-3. **Hedef dil**: 21 dilden biri
-4. **Çıktı**: burn-in / yumuşak altyazı / sadece `.srt`
-5. Burn-in için stil ayarlayın → **Başlat**
+### Video tab
+1. Drag and drop a video, or use **Choose file…**
+2. **Whisper model** (the recommendation is picked from your hardware)
+3. **Target language**: one of 21
+4. **Output**: burn-in / soft subtitles / `.srt` only
+5. Adjust burn-in styling if needed → **Start**
 
-### Kuyruk sekmesi
-Birden fazla video sürükleyin → **Kuyruğu Başlat**. Her dosya için durum ve
-çıktı adı tabloda görünür; hatada kuyruk devam eder ve sonda özet verilir.
+### Queue tab
+Drag in several videos → **Start queue**. Status and output name appear per
+file; on error the queue continues and prints a summary at the end.
 
-### SRT Çevir sekmesi
-Var olan `.srt` dosyasını bırakın. İsterseniz bir video da seçin (burn-in veya
-yumuşak altyazı için). **Kaynak dil** seçilmezse metinden tahmin edilir.
+### Translate SRT tab
+Drop an existing `.srt`. Optionally pick a video (for burn-in or soft
+subtitles). If **source language** is left on auto, it is guessed from the text.
 
-**Hedef dil** bu sekmede ayrıca seçilir — Video sekmesindeki seçimden
-etkilenmez. **Çıktı** türü de burada belirlenir (sadece .srt / burn-in /
-yumuşak altyazı).
+**Target language** and **output type** are set separately in this tab — they
+do not follow the Video tab.
 
-### Ayarlar sekmesi
-- **CPU thread** / **num_workers** — boş bırakılırsa fiziksel çekirdek sayısı
-- **Transkripsiyon + çeviri paralel** — Otomatik / Açık / Kapalı
-- **CPS sınırı** — 0 = kapalı, önerilen 17–20
-- **Kelime düzeyi damga** — daha doğru bölme, ~%15 daha yavaş
-- **FFmpeg**, **çeviri motoru**, **model önbelleği** yönetimi
+### Settings tab
+- **CPU thread** / **num_workers** — blank means physical core count
+- **Transcription + translation in parallel** — Auto / On / Off
+- **CPS limit** — 0 disables it; 17–20 recommended
+- **Word-level timestamps** — more accurate splitting, ~15% slower
+- **FFmpeg**, **translation engine**, **model cache** management
 
-### Çıktılar
+### Output files
 
-Kaynak dosyanın yanına yazılır:
+Written next to the source file:
 
 ```
 video.mp4
-video_tr.srt      ← hedef dil Türkçe ise
-video_de.srt      ← hedef dil Almanca ise
-video_de.mp4      ← burn-in veya yumuşak altyazı seçildiyse
+video_tr.srt      ← when the target language is Turkish
+video_de.srt      ← when the target language is German
+video_de.mp4      ← when burn-in or soft subtitles were selected
 ```
 
-Dosya adındaki ek hedef dili gösterir; böylece aynı videoyu birden fazla
-dile çevirdiğinizde hiçbir dosya birbirinin üzerine yazılmaz.
+The suffix in the filename shows the target language, so translating the same
+video into several languages never overwrites an earlier result.
 
 ---
 
-## Test (adım adım)
+## Testing (step by step)
 
-### A. Ortam
+### A. Environment
 
 ```powershell
 py --version
-py -c "import PySide6, faster_whisper, ctranslate2, tokenizers, requests, psutil; print('bagimliliklar tamam')"
+py -c "import PySide6, faster_whisper, ctranslate2, tokenizers, requests, psutil; print('dependencies ok')"
 ```
 
-### B. Sözdizimi
+### B. Syntax
 
 ```powershell
 py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py
 ```
 
-### C. Birim testleri (ağ/model gerekmez)
+### C. Unit tests (no network, no models)
 
 ```powershell
 py test/test_subtitles.py
 ```
 
-Kapsam: kelime→cümle gruplama, kelime damgasından cue, CPS uzatma/bölme,
-2 satır sınırı, SRT yaz/oku (BOM + CRLF + HTML + numarasız blok).
+Coverage: word→sentence grouping, cues from word timings, CPS extension,
+2-line limit, SRT read/write (BOM + CRLF + HTML + unnumbered blocks).
 
-Beklenen son satır: `TUM ALTYAZI TESTLERI GECTI`
+Expected last line: `TUM ALTYAZI TESTLERI GECTI`
 
-### D. Motor ve FFmpeg
+### D. Engine and FFmpeg
 
 ```powershell
 py -c "from translator import check_ctranslate2_runtime; print(check_ctranslate2_runtime())"
 py -c "import ffmpeg_bootstrap as b; print(b.describe_ffmpeg())"
 ```
 
-Beklenen: `None` ve FFmpeg sürüm satırı.
+Expected: `None` and an FFmpeg version line.
 
-### E. Uçtan uca (gerçek video)
+### E. End to end (real video)
 
-`test/konusma ingilizce.mp4` hazır gelir:
+`test/konusma ingilizce.mp4` ships with the repo:
 
 ```powershell
-py test/test_transcribe.py     # dilimleme + kelime damgası
-py test/test_runner.py         # srt / burn / pipeline / SRT içe aktarma
-py test/test_queue.py          # kuyruk + model yeniden kullanımı
-py test/run_cancel_test.py 2500   # iptal + temp temizliği
+py test/test_transcribe.py     # chunking + word timestamps
+py test/test_runner.py         # srt / burn / pipeline / SRT import
+py test/test_queue.py          # queue + model reuse
+py test/run_cancel_test.py 2500   # cancel + temp cleanup
 ```
 
-### F. Arayüz
+### F. UI
 
 ```powershell
 py test/gui_screenshot.py "test\konusma ingilizce.mp4"
 ```
 
-`test/gui_tab_*.png` dosyalarını üretir.
+Writes `test/gui_tab_*.png`.
 
-### G. Hata senaryoları
+### G. Failure scenarios
 
-| Senaryo | Beklenen |
+| Scenario | Expected |
 |---|---|
-| Sessiz video | "Bu videoda ses kanalı bulunamadı." |
-| Bozuk dosya | "Video dosyası çözümlenemedi veya bozuk." |
-| FFmpeg yok | Otomatik indirme teklifi |
-| İnternet yok (ilk indirme) | "FFmpeg otomatik olarak indirilemedi…" |
-| Konuşma yok | "Videoda konuşma bulunamadı." |
-| Disk dolu | "Disk dolu… boş alan açıp tekrar deneyin." |
-| VC++ eski | Ayarlar'da "ÇALIŞMIYOR" + Türkçe açıklama |
+| Silent video | "Bu videoda ses kanalı bulunamadı." |
+| Corrupt file | "Video dosyası çözümlenemedi veya bozuk." |
+| No FFmpeg | Offer to download automatically |
+| No internet (first download) | "FFmpeg otomatik olarak indirilemedi…" |
+| No speech | "Videoda konuşma bulunamadı." |
+| Disk full | "Disk dolu… boş alan açıp tekrar deneyin." |
+| Old VC++ | "ÇALIŞMIYOR" in Settings plus a Turkish explanation |
 
-### H. Video kalite teşhisi
+### H. Video quality diagnostics
 
-Bir videoda piksellenme, yirtilma veya dev altyazi görürseniz:
+If a video shows pixelation, tearing, or oversized subtitles:
 
 ```powershell
-py test/diagnose_quality_report.py "C:\yol\video.mp4"
+py test/diagnose_quality_report.py "C:\path\video.mp4"
 ```
 
-Rapor: altyazı alanı oranı, karanlık bölge bloklanma farkı, SSIM, H.264
-level ve bitrate karşılaştırması. `ORTALAMA` satırı `İYİ / KABUL EDİLEBİLİR /
-KÖTÜ` verir.
+The report covers subtitle area ratio, dark-region blocking delta, SSIM, H.264
+level and bitrate. The `ORTALAMA` line rates the result `İYİ / KABUL
+EDİLEBİLİR / KÖTÜ`.
 
-H.264 level uygunluğunu (MaxFS / MaxMBPS / MaxDPB) denetlemek için:
+To check H.264 level conformance (MaxFS / MaxMBPS / MaxDPB):
 
 ```powershell
 py test/check_h264_level.py
@@ -343,144 +353,144 @@ py test/check_h264_level.py
 
 ---
 
-## Exe üretme
+## Building an exe
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
-Bu betik: bağımlılıkları kurar, testleri çalıştırır, PyInstaller ile paketler,
-proje içindeki FFmpeg'i `dist` klasörüne kopyalar ve
-`Subtra-portable.zip` üretir.
+The script installs dependencies, runs the tests, packages with PyInstaller,
+copies the local FFmpeg into `dist`, and produces `Subtra-portable.zip`.
 
-Yalnızca paketleme:
+Packaging only:
 
 ```powershell
 py -m PyInstaller Subtra.spec --noconfirm --clean
 ```
 
-Sonuç:
+Result:
 
 ```
 dist\Subtra\
     Subtra.exe
-    ffmpeg\bin\ffmpeg.exe      ← PATH gerekmez
+    ffmpeg\bin\ffmpeg.exe      ← no PATH needed
     ffmpeg\bin\ffprobe.exe
     _internal\...
 ```
 
-- **Klasör modu** kullanılır (`--onefile` değil): açılış hızlı, modeller kalıcı.
-- FFmpeg'i zip'e koymak istemiyorsanız `-SkipFfmpeg` yerine klasörü silin;
-  uygulama ilk açılışta indirir.
-- Antivirüs yanlış pozitif verirse klasörü istisnaya ekleyin.
+- **Folder mode** is used (not `--onefile`): fast startup, persistent models.
+- If you prefer not to bundle FFmpeg, delete the folder and the app will
+  download it on first launch.
+- If antivirus flags the exe, add the folder to its exclusions.
 
 ---
 
-## Sorun giderme
+## Troubleshooting
 
-| Belirti | Çözüm |
+| Symptom | Fix |
 |---|---|
 | `ModuleNotFoundError` | `py -m pip install -r requirements.txt` |
-| Uygulama çeviride sessizce kapanıyor | VC++ Redistributable güncelle (bölüm 3) |
-| "Çeviri motoru çalışmıyor" | `winget install --id Microsoft.VCRedist.2015+.x64 -e` |
-| FFmpeg bulunamadı | Ayarlar → FFmpeg'i İndir |
-| Model indirme başarısız | İnternet/proxy; disk alanı |
-| Çeviri yavaş | `tiny`/`base` deneyin, diğer programları kapatın |
-| Altyazı çok hızlı akıyor | CPS sınırını düşürün (ör. 15) |
-| **Altyazı ekranı kaplıyor / dev yazı** | Güncel sürümü kullanın (ölçek düzeltmesi); Ayarlar → burn-in kalitesi |
-| **Karanlık sahnelerde bloklanma/piksellesme** | Burn-in CRF'i 16–18 yapın; eski sürüm 20 kullanıyordu |
-| Arayüz bulanık | Windows ölçekleme %100–150 |
-| Bellek yetersiz | Daha küçük model, `num_workers=1` |
+| App closes silently during translation | Update the VC++ Redistributable (section 3) |
+| "Translation engine is not working" | `winget install --id Microsoft.VCRedist.2015+.x64 -e` |
+| FFmpeg not found | Settings → Download FFmpeg |
+| Model download fails | Check internet/proxy and disk space |
+| Translation is slow | Try `tiny`/`base`, close other programs |
+| Subtitles flash by too quickly | Lower the CPS limit (e.g. 15) |
+| **Subtitles cover the screen / huge text** | Use the current version (scaling fix); Settings → burn-in quality |
+| **Blocking/pixelation in dark scenes** | Set burn-in CRF to 16–18; older builds used 20 |
+| Blurry UI | Windows scaling between 100–150% |
+| Out of memory | Smaller model, `num_workers=1` |
 
-Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,
-donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
+When reporting a problem, use **Copy error report**; it includes version, OS,
+hardware, FFmpeg, model inventory, settings and the last 200 log lines.
 
-### Geliştirici notları (karşılaşılan gerçek hatalar)
+### Developer notes (real bugs encountered)
 
-1. **CTranslate2 erişim ihlali (0xC0000005)** — Eski `MSVCP140.dll` (14.29)
-   yüzünden `ctranslate2.Translator(...)` tüm süreci çökertiyordu; Python
-   `try/except` bunu yakalayamaz. Çözüm: VC++ güncellemesi + ayrı süreçte
-   ön kontrol (`translator.check_ctranslate2_runtime`).
+1. **CTranslate2 access violation (0xC0000005)** — an old `MSVCP140.dll` (14.29)
+   made `ctranslate2.Translator(...)` crash the whole process; Python
+   `try/except` cannot catch it. Fixed with the VC++ update plus a preflight
+   check in a separate process (`translator.check_ctranslate2_runtime`).
 
-2. **NLLB'de eksik EOS token'ı** — Kaynak dizisi `[src_lang] + tokenlar`
-   şeklindeydi ve model "Kat Kat Kat…" diye tekrarlıyordu. NLLB kaynak
-   dizisinin sonunda `</s>` bekler. Ayrıca `sentencepiece` ID'leri NLLB
-   sırasıyla uyuşmaz; `tokenizer.json` + `shared_vocabulary.txt` eşlemesi
-   gerekir.
+2. **Missing EOS token in NLLB** — the source sequence was
+   `[src_lang] + tokens` and the model repeated "Kat Kat Kat…". NLLB expects
+   `</s>` at the end of the source sequence. Also, `sentencepiece` IDs do not
+   match NLLB order; the `tokenizer.json` + `shared_vocabulary.txt` mapping is
+   required.
 
-3. **PyAV / faster-whisper uyumsuzluğu** — `av` 19 ile dosya yolu verildiğinde
-   `metadata_errors` hatası. Çözüm: WAV'ı `wave` + numpy ile float32 diziye
-   okuyup Whisper'a **dizi** vermek.
+3. **PyAV / faster-whisper incompatibility** — `av` 19 raised
+   `metadata_errors` when given a file path. Fixed by reading the WAV into a
+   float32 array with `wave` + numpy and giving Whisper the **array**.
 
-4. **Dilim sınırında kelime tekrarı** — 10 dakikalık dilimlerde son kelimeler
-   tekrar ediyordu. Çözüm: `_duplicate_prefix_len` ile normalize edilmiş
-   kelime öneki karşılaştırması.
+4. **Word repeats at chunk boundaries** — 10-minute chunks duplicated the last
+   words. Fixed with `_duplicate_prefix_len`, comparing normalised word
+   prefixes.
 
-5. **CPS bölmesi anlamı bozuyordu** — Karakter sayısına göre bölmek cümleyi
-   ortadan kesiyordu. Çözüm: kelime damgası + noktalama sınırı, ardından
-   CPS için önce süre uzatma, sonra dengeli kelime bölme.
+5. **CPS splitting destroyed meaning** — splitting by character count cut
+   sentences in half, and it cannot lower CPS anyway. Fixed with word
+   timestamps + punctuation boundaries, and CPS handled by extending duration.
 
-6. **Altyazı ekranı kaplıyordu (dev yazı)** — Kullanıcı 1080x1918 dikey videoda
-   altyazının devasa çıktığını bildirdi. Neden: libass `force_style` içindeki
-   `FontSize` değerini varsayılan `PlayResY=288` kutusuna göre ölçekler.
-   `FontSize=18` × (1918/288) = **120 piksel** yazı → 2 satır metin 4 satıra
-   taşıp ekranın yarısını kaplıyordu. Çözüm: `PlayResX/PlayResY` video
-   boyutuna eşitlenir, punto piksele çevrilir. Ölçüm: altyazı alanı videonun
-   %2.58'inden %0.57'sine indi (**%78 küçülme**).
+6. **Subtitles covered the screen (huge text)** — reported on a 1080x1918
+   vertical video. Cause: libass scales `FontSize` against the default
+   `PlayResY=288` box, so `FontSize=18` × (1918/288) = **120 px** text, which
+   pushed 2 lines into 4 and covered half the frame. Fix: `PlayResX/PlayResY`
+   match the video size and the point size is converted to pixels. Measured:
+   subtitle area dropped from 2.58% to 0.57% of the frame (**78% smaller**).
 
-7. **Karanlık sahnelerde bloklanma / piksellesme** — Aynı videoda bildirilen
-   ikinci sorun. Teşhis yöntemi: kare kare SSIM + özel **bloklanma ölçütü**
-   (8x8 blok sınırlarındaki piksel farkının blok içi farka oranı).
+7. **Blocking / pixelation in dark scenes** — the second issue reported on the
+   same video. Diagnosis: per-frame SSIM plus a purpose-built **blocking
+   metric** (ratio of pixel differences across 8×8 block boundaries to
+   differences inside blocks).
 
-   | Ölçüm | Eski ayarlar | Yeni ayarlar |
+   | Measurement | Old settings | New settings |
    |---|---|---|
-   | Altyazısız bölge SSIM | 0.9972 | 0.9978 |
-   | Karanlık bölge bloklanma farkı | **+0.209** | **+0.038** |
+   | SSIM, subtitle-free region | 0.9972 | 0.9978 |
+   | Blocking delta, dark region | **+0.209** | **+0.038** |
    | H.264 level | 4.0 | 5.0 |
    | Bitrate | 3066 kbps | 4186 kbps |
 
-   Suçlu bitrate değil, **kodlayıcı ayarlarıydı**: `ref=3`, `aq-mode=1`,
-   `deblock=1,0` ve level 4.0. `aq-mode=3` karanlık sahnelere daha fazla bit
-   ayırır, `deblock=1,1` blok sınırlarını yumuşatır, `ref=5` tahmini
-   iyileştirir. Bloklanma **%82 azaldı**. Ayrıca 1080x1918@30 için level 4.0
-   DPB sınırında kalıyordu (ref=5 ile 6 kare saklanamaz); doğru level artık
-   `width/height/fps` üzerinden hesaplanıyor.
+   The culprit was **encoder settings**, not bitrate: `ref=3`, `aq-mode=1`,
+   `deblock=1,0` and level 4.0. `aq-mode=3` allocates more bits to dark scenes,
+   `deblock=1,1` smooths block edges, `ref=5` improves prediction. Blocking
+   dropped **82%**. Level 4.0 was also sitting exactly on the DPB limit for
+   1080x1918@30 (ref=5 cannot store 6 frames); the level is now computed from
+   `width/height/fps`.
 
-   Aynı videoda `crf 14` denemek bloklanmayı **düzeltmedi** (+0.189) — yani
-   "daha yüksek bitrate" tek başına çözüm değil; doğru `x264-params` gerekli.
-
----
-
-## Teknik notlar
-
-- **Ses**: FFmpeg ile 16 kHz mono `pcm_s16le` WAV.
-- **Parçalama**: WAV `wave` ile 10 dk dilimlere bölünür (ek ffmpeg geçişi yok,
-  bellek ~38 MB/dilim). 1 sn örtüşme, dilim başında tekrar temizliği.
-  Dil ilk dilimde tespit edilir, sonra sabitlenir; bağlam `initial_prompt` ile taşınır.
-- **Thread bütçesi**: tek modelde tüm fiziksel çekirdekler; pipeline'da
-  %60 Whisper / %40 NLLB.
-- **Pipeline**: `queue.Queue(maxsize=8)` üretici-tüketici; kuyruk dolunca
-  üretici bekler → bellek sınırlı kalır.
-- **Sıralama garantisi**: pipeline sonuçları indeksle saklanır, `finish()`
-  sıralı döndürür.
-- **Burn-in**: `subtitles` filtresi + `force_style`
-  (`FontName=Arial`, renk BGR sırasında `&HAABBGGRR`).
-  `PlayResX/PlayResY` video boyutuna eşitlenir ve punto piksele ölçeklenir;
-  aksi hâlde yüksek çözünürlüklü videolarda yazı devasa çıkar.
-  Kodlayıcı: `crf 18`, `preset slow`, `ref=5:aq-mode=3:deblock=1,1:
-  psy-rd=1.0,0.15`, level `h264_level_for(w, h, fps)` ile hesaplanır.
-  Yol escape'i iki katmanlı: `C\:/...` ve hata durumunda göreli ad + `cwd`.
-- **Yumuşak altyazı**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
-- **SRT**: UTF-8 (BOM'suz), LF, `HH:MM:SS,mmm`.
-- **İptal**: `threading.Event`; FFmpeg süreci sonlandırılır, dilim döngüsü
-  her adımda kontrol eder, geçici dosyalar silinir.
+   Trying `crf 14` on the same video did **not** fix blocking (+0.189) —
+   higher bitrate alone is not the answer; the right `x264-params` are.
 
 ---
 
-## Lisans
+## Technical notes
 
-MIT. Kullanılan modeller kendi lisanslarına tabidir:
+- **Audio**: FFmpeg produces 16 kHz mono `pcm_s16le` WAV.
+- **Chunking**: the WAV is split into 10-minute chunks with `wave` (no extra
+  ffmpeg pass, ~38 MB per chunk). 1 s overlap, duplicate cleanup at chunk
+  start. Language is detected on the first chunk and then pinned; context is
+  carried via `initial_prompt`.
+- **Thread budget**: all physical cores for a single model; 60% Whisper / 40%
+  NLLB when pipelining.
+- **Pipeline**: `queue.Queue(maxsize=8)` producer-consumer; the producer blocks
+  when the queue is full, keeping memory bounded.
+- **Ordering guarantee**: pipeline results are stored by index, so `finish()`
+  returns them in order.
+- **Burn-in**: `subtitles` filter + `force_style`
+  (`FontName=Arial`, colour in BGR order as `&HAABBGGRR`).
+  `PlayResX/PlayResY` match the video size and the point size is scaled to
+  pixels, otherwise text becomes huge on high-resolution video.
+  Encoder: `crf 18`, `preset slow`, `ref=5:aq-mode=3:deblock=1,1:
+  psy-rd=1.0,0.15`, level computed by `h264_level_for(w, h, fps)`.
+  Path escaping is two-layered: `C\:/...`, and a relative name + `cwd` fallback.
+- **Soft subtitles**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
+- **SRT**: UTF-8 without BOM, LF, `HH:MM:SS,mmm`.
+- **Cancellation**: `threading.Event`; the FFmpeg process is terminated, the
+  chunk loop checks every step, temporary files are removed.
+
+---
+
+## License
+
+MIT. Bundled models keep their own licences:
 
 - faster-whisper / Whisper: MIT
-- NLLB-200: CC-BY-NC-4.0 (ticari kullanım için lisansınızı kontrol edin)
+- NLLB-200: CC-BY-NC-4.0 (check your licence needs for commercial use)
 - FFmpeg: LGPL/GPL
