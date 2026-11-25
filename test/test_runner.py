@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import app_paths  # noqa: E402
-from errors import VideoCeviriError  # noqa: E402
+from errors import SubtraError  # noqa: E402
 from ffmpeg_utils import SubtitleStyle  # noqa: E402
 from worker import JobHooks, JobRunner, JobSettings, ModelCache  # noqa: E402
 
@@ -29,7 +29,7 @@ def run(settings: JobSettings, label: str) -> bool:
     started = time.time()
     try:
         video, srt, summary = runner.run()
-    except VideoCeviriError as exc:
+    except SubtraError as exc:
         print(f"  HATA {exc}")
         return False
     finally:
