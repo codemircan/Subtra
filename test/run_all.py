@@ -25,6 +25,7 @@ SKIP_CODE = 77
 TESTS = [
     # (ad, argümanlar, ağ/model gerektirir mi)
     ("Sürüm tutarlılığı", ["test/test_version.py"], False),
+    ("Başlatma (DPI / konsol)", ["test/test_startup.py"], False),
     ("Altyazı birim testleri", ["test/test_subtitles.py"], False),
     ("İndirme devam ettirme (Range)", ["test/test_download_resume.py"], False),
     ("Log dosyası", ["test/test_logging.py"], False),

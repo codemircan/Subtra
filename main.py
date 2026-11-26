@@ -1,7 +1,15 @@
-"""Subtra - giris noktasi.
+"""Subtra — giriş noktası.
 
-Calistirma:
-    py main.py
+Çalıştırma:
+    py main.py          (konsollu, hata mesajları görünür)
+    pyw main.py         (konsolsuz, önerilen)
+
+DPI hakkında not:
+    Qt 6, Windows'ta varsayılan olarak `PER_MONITOR_AWARE_V2` DPI bağlamını
+    kendisi ayarlar (en iyi seçenek: çoklu monitörde net metin). Uygulama
+    ayrıca `SetProcessDpiAwareness()` çağırırsa Qt bunu "zaten ayarlanmış"
+    görüp uyarı basar ve bizim ayarımız daha zayıf olduğu için bulanıklık
+    oluşur. Bu yüzden DPI ayarına hiç dokunmuyoruz.
 """
 
 from __future__ import annotations
@@ -12,17 +20,26 @@ import sys
 import traceback
 
 
-def _enable_high_dpi() -> None:
-    """Windows'ta bulanik arayuzu onler."""
+def _has_console() -> bool:
+    """Gerçek bir konsol penceresi var mı? (pyw ile çalışırken yok)"""
+    stream = sys.stderr
+    if stream is None:
+        return False
+    try:
+        return bool(stream.isatty())
+    except (AttributeError, ValueError):
+        return False
+
+
+def _show_error_box(title: str, message: str) -> None:
+    """Konsol yokken hatayı MessageBox ile gösterir."""
     if os.name != "nt":
         return
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PROCESS_SYSTEM_DPI_AWARE
+        MB_ICONERROR = 0x10
+        ctypes.windll.user32.MessageBoxW(None, message, title, MB_ICONERROR)
     except (AttributeError, OSError):
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()
-        except (AttributeError, OSError):
-            pass
+        pass
 
 
 def _check_dependencies() -> list[str]:
@@ -42,19 +59,26 @@ def _check_dependencies() -> list[str]:
 
 
 def _fatal(message: str) -> int:
-    sys.stderr.write(message + "\n")
+    """Konsol varsa stderr'e, yoksa MessageBox'a yazar; her durumda loglar."""
+    try:
+        if sys.stderr is not None:
+            sys.stderr.write(message + "\n")
+    except Exception:
+        pass
+
     try:
         import logging_setup
 
         logging_setup.get_logger("fatal").error(message)
     except Exception:
         pass
+
+    if not _has_console():
+        _show_error_box("Subtra", message.strip())
     return 1
 
 
 def main() -> int:
-    _enable_high_dpi()
-
     missing = _check_dependencies()
     if missing:
         return _fatal(

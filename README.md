@@ -423,7 +423,8 @@ dist\Subtra\
 | Subtitles flash by too quickly | Lower the CPS limit (e.g. 15) |
 | **Subtitles cover the screen / huge text** | Use the current version (scaling fix); Settings → burn-in quality |
 | **Blocking/pixelation in dark scenes** | Set burn-in CRF to 16–18; older builds used 20 |
-| Blurry UI | Windows scaling between 100–150% |
+| Blurry UI | Windows scaling between 100-150% |
+| **Black console window stays open, Qt DPI warning** | Launch with `calistir.bat` (uses `pyw`, no console) — fixed in 2.1.2 |
 | Out of memory | Smaller model, `num_workers=1` |
 
 When reporting a problem, use **Copy error report**; it includes version, OS,

@@ -417,6 +417,7 @@ dist\Subtra\
 | **Altyazı ekranı kaplıyor / dev yazı** | Güncel sürümü kullanın (ölçek düzeltmesi); Ayarlar → burn-in kalitesi |
 | **Karanlık sahnelerde bloklanma/piksellesme** | Burn-in CRF'i 16–18 yapın; eski sürüm 20 kullanıyordu |
 | Arayüz bulanık | Windows ölçekleme %100–150 |
+| **Siyah cmd penceresi açık kalıyor, Qt DPI uyarısı** | `calistir.bat` ile başlatın (`pyw` kullanır, konsol açılmaz) — 2.1.2'de düzeltildi |
 | Bellek yetersiz | Daha küçük model, `num_workers=1` |
 
 Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,
