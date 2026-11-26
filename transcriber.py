@@ -42,6 +42,10 @@ CHUNK_SECONDS = 600.0      # 10 dakika
 OVERLAP_SECONDS = 1.0
 SKIP_AFTER_OVERLAP = 0.5   # yeni dilimde bu kadar erken kelimeler atilir
 
+# Parcalama boyutu kucuk tutulur: baglanti koparsa en fazla bu kadar
+# ilerleme kaybolur, geri kalani `.part` sayesinde devam eder.
+DOWNLOAD_CHUNK_BYTES = 64 * 1024
+
 HF_RESOLVE = "https://huggingface.co/{repo}/resolve/main/{name}"
 
 ProgressCB = Optional[Callable[[float], None]]
@@ -133,41 +137,26 @@ def download_repo_files(
         part = dest / (name + ".part")
         if log_cb:
             log_cb(f"  indiriliyor: {name}")
-        written = 0
-        try:
-            with session.get(url, stream=True, timeout=120) as response:
-                response.raise_for_status()
-                with open(part, "wb") as handle:
-                    for chunk in response.iter_content(chunk_size=1024 * 256):
-                        if cancel_event is not None and cancel_event.is_set():
-                            raise CancelledError("İndirme iptal edildi.")
-                        if not chunk:
-                            continue
-                        handle.write(chunk)
-                        written += len(chunk)
-                        if progress_cb and total_bytes:
-                            progress_cb(min(0.99, (done_bytes + written) / total_bytes))
-        except CancelledError:
-            _safe_unlink(part)
-            raise
-        except OSError:
-            _safe_unlink(part)
-            raise
-        except Exception as exc:
-            _safe_unlink(part)
-            raise ModelDownloadError(
-                f"'{name}' indirilirken hata oluştu.\n{exc}"
-            ) from exc
+        written = _download_with_resume(
+            session, url, part, size, name, log_cb, progress_cb,
+            cancel_event, done_bytes, total_bytes,
+        )
 
         try:
             if target.exists():
                 target.unlink()
             part.replace(target)
         except OSError as exc:
-            _safe_unlink(part)
             raise ModelDownloadError(
                 f"'{name}' dosyası yazılamadı (disk dolu veya izin yok).\n{exc}"
             ) from exc
+
+        if size and target.stat().st_size != size:
+            raise ModelDownloadError(
+                f"'{name}' indirmesi eksik kaldı "
+                f"({target.stat().st_size} / {size} bayt).\n"
+                "İndirmeyi tekrar deneyin; kaldığı yerden devam eder."
+            )
 
         done_bytes += written or size
         if progress_cb and total_bytes:
@@ -176,6 +165,102 @@ def download_repo_files(
     if progress_cb:
         progress_cb(1.0)
     return dest
+
+
+def _download_with_resume(
+    session,
+    url: str,
+    part: Path,
+    expected_size: int,
+    name: str,
+    log_cb: LogCB,
+    progress_cb: ProgressCB,
+    cancel_event: threading.Event | None,
+    done_bytes: int,
+    total_bytes: int,
+) -> int:
+    """Dosyayi indirir; yarim kalan `.part` varsa kaldigi yerden devam eder.
+
+    - `.part` boyutu > 0 ise `Range: bytes=<n>-` gonderilir.
+    - Sunucu 206 dondururse eklenir; 200 dondururse bastan yazilir.
+    - Ag hatasinda `.part` SILINMEZ (devam ettirilebilsin).
+    - Iptalde ve bozuk yanitta silinir.
+    """
+    import requests
+
+    resume_from = part.stat().st_size if part.exists() else 0
+    if expected_size and resume_from > expected_size:
+        # Bozuk/eskimis dosya
+        _safe_unlink(part)
+        resume_from = 0
+
+    headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
+
+    if resume_from and log_cb:
+        log_cb(f"  devam ediliyor: {name} (%{resume_from * 100 // max(1, expected_size)})")
+
+    written = 0
+    mode = "ab" if resume_from else "wb"
+
+    try:
+        with session.get(url, stream=True, timeout=120, headers=headers) as response:
+            if response.status_code == 416:
+                # Aralik gecersiz: bastan basla
+                _safe_unlink(part)
+                raise _RetryDownload()
+            response.raise_for_status()
+
+            if resume_from and response.status_code != 206:
+                # Sunucu Range desteklemiyor: bastan yaz
+                resume_from = 0
+                mode = "wb"
+                written = 0
+
+            with open(part, mode) as handle:
+                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_BYTES):
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise CancelledError("İndirme iptal edildi.")
+                    if not chunk:
+                        continue
+                    handle.write(chunk)
+                    written += len(chunk)
+                    if progress_cb and total_bytes:
+                        progress_cb(
+                            min(0.99, (done_bytes + resume_from + written) / total_bytes)
+                        )
+    except CancelledError:
+        _safe_unlink(part)
+        raise
+    except _RetryDownload:
+        return _download_with_resume(
+            session, url, part, expected_size, name, log_cb, progress_cb,
+            cancel_event, done_bytes, total_bytes,
+        )
+    except requests.RequestException as exc:
+        # ONEMLI: bu blok OSError'dan ONCE gelmeli.
+        # requests.RequestException, OSError'in alt sinifidir; yanlis sirada
+        # ag kopmasi "dosya sistemi hatasi" sayilip ilerleme silinirdi.
+        # Ag hatasinda `.part` KORUNUR, tekrar denemede kaldigi yerden devam eder.
+        size_now = part.stat().st_size if part.exists() else 0
+        raise ModelDownloadError(
+            f"'{name}' indirilirken bağlantı kesildi.\n"
+            f"Kaldığı yerden devam edilecek ({size_now} bayt).\n{exc}"
+        ) from exc
+    except OSError as exc:
+        # Disk hatasi (ENOSPC vb.): yarim dosya ise yaramaz
+        _safe_unlink(part)
+        raise
+    except Exception as exc:
+        _safe_unlink(part)
+        raise ModelDownloadError(
+            f"'{name}' indirilirken hata oluştu.\n{exc}"
+        ) from exc
+
+    return resume_from + written
+
+
+class _RetryDownload(Exception):
+    """Sunucu aralik istegini reddetti; bastan indirilecek."""
 
 
 def _normalise_token(text: str) -> str:
@@ -227,6 +312,15 @@ def cached_whisper_models(models_root: str | Path) -> list[str]:
     return [size for size in WHISPER_REPOS if is_whisper_cached(models_root, size)]
 
 
+def _downloads_disabled() -> bool:
+    """Test/CI ortaminda indirmeyi kapatir.
+
+    `SUBTRA_NO_DOWNLOAD=1` iken model yoksa indirme yerine hata verilir;
+    testler sessizce yüzlerce MB indirmesin.
+    """
+    return os.environ.get("SUBTRA_NO_DOWNLOAD", "").strip() in {"1", "true", "yes"}
+
+
 def ensure_whisper_model(
     size: str,
     models_root: str | Path,
@@ -245,6 +339,13 @@ def ensure_whisper_model(
         if progress_cb:
             progress_cb(1.0)
         return directory
+
+    if _downloads_disabled():
+        raise ModelDownloadError(
+            f"Whisper '{size}' modeli indirilmemiş ve indirme kapalı "
+            "(SUBTRA_NO_DOWNLOAD=1).\n"
+            f"Beklenen klasör: {directory}"
+        )
 
     if log_cb:
         log_cb(f"Whisper '{size}' modeli indirilecek (yalnızca ilk kullanım).")

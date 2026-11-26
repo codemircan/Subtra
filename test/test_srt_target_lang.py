@@ -11,12 +11,18 @@ from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 import logging_setup  # noqa: E402
+import fixtures  # noqa: E402
 from gui import MainWindow  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent
-WORK = PROJECT / "test" / "_langs"
-EN_SRT = WORK / "konusma ingilizce.srt"
+# Kendi fixture'ini kullan (baska testin ciktisina bagimli olmasin)
+EN_SRT = fixtures.require_srt()
 
+import app_paths  # noqa: E402
+
+_models = app_paths.resolve_models_dir()
+if not (_models / "nllb-200-distilled-600M-ct2-int8").exists():
+    raise SystemExit(fixtures.skip("NLLB çeviri modeli indirilmemiş"))
 
 def patch_dialogs():
     QMessageBox.information = staticmethod(lambda *a, **k: QMessageBox.Ok)

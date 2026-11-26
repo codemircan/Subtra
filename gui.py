@@ -853,9 +853,15 @@ class MainWindow(QMainWindow):
         logging_setup.get_logger("ui").info(message)
 
     def _append_log(self, message: str) -> None:
+        """Is akisi mesajini panele VE log dosyasina yazar.
+
+        Panel zaten bu mesaji gosterdigi icin `log_to_file` kullanilir;
+        arayuz kuyruguna eklenirse tekrar olur.
+        """
         self.log_view.appendPlainText(message)
         bar = self.log_view.verticalScrollBar()
         bar.setValue(bar.maximum())
+        logging_setup.log_to_file(message)
 
     def timerEvent(self, event) -> None:  # noqa: N802
         messages = logging_setup.poll_messages(400)

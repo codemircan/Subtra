@@ -10,11 +10,16 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 from PySide6.QtCore import QCoreApplication, QTimer  # noqa: E402
 
 import app_paths  # noqa: E402
+import fixtures  # noqa: E402
 from ffmpeg_utils import SubtitleStyle  # noqa: E402
 from worker import JobSettings, ModelCache, VideoWorker  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent
-VIDEO = str(PROJECT / "test" / "konusma ingilizce.mp4")
+
+VIDEO = str(fixtures.require_video())
+models_root = app_paths.resolve_models_dir()
+if not (models_root / "faster-whisper-tiny").exists():
+    raise SystemExit(fixtures.skip("Whisper 'tiny' modeli indirilmemiş"))
 
 app = QCoreApplication(sys.argv[:1])
 
@@ -24,12 +29,12 @@ settings = JobSettings(
     target_lang="tr",
     output_mode="burn",
     style=SubtitleStyle(),
-    ffmpeg_path=str(PROJECT / "ffmpeg" / "bin" / "ffmpeg.exe"),
-    models_dir=str(app_paths.resolve_models_dir()),
+    ffmpeg_path=fixtures._ffmpeg() or "",
+    models_dir=str(models_root),
     pipeline_mode="off",
 )
 
-cache = ModelCache(app_paths.resolve_models_dir(), log_cb=lambda m: None)
+cache = ModelCache(models_root, log_cb=lambda m: None)
 worker = VideoWorker(settings, models=cache)
 
 state = {"cancelled": False, "error": None, "ok": False, "temp": None}

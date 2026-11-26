@@ -187,35 +187,72 @@ def _download_to_file(
     progress_cb: ProgressCB = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
+    """FFmpeg arşivini indirir; yarım kalan `.part` varsa devam eder.
+
+    Ag kopmasinda `.part` korunur (tekrar denemede `Range` ile devam eder),
+    iptalde ve bozuk yanitta silinir.
+    """
     import requests
 
     target.parent.mkdir(parents=True, exist_ok=True)
     part = target.with_suffix(target.suffix + ".part")
+    resume_from = part.stat().st_size if part.exists() else 0
+    headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
 
-    with requests.get(url, stream=True, timeout=120, allow_redirects=True) as response:
-        response.raise_for_status()
-        try:
-            total = int(response.headers.get("Content-Length") or 0)
-        except ValueError:
-            total = 0
+    try:
+        with requests.get(
+            url, stream=True, timeout=120, allow_redirects=True, headers=headers
+        ) as response:
+            if response.status_code == 416:
+                part.unlink(missing_ok=True)
+                resume_from = 0
+                headers = {}
+                return _download_to_file(url, target, progress_cb, cancel_event)
 
-        if total and _free_bytes(target.parent) < total * 2:
-            raise FFmpegDownloadError(
-                "FFmpeg indirmek için yeterli disk alanı yok.\n"
-                f"Gereken: yaklaşık {total * 2 / (1024 ** 3):.2f} GB"
-            )
+            response.raise_for_status()
+            try:
+                total = int(response.headers.get("Content-Length") or 0)
+            except ValueError:
+                total = 0
 
-        written = 0
-        with open(part, "wb") as handle:
-            for chunk in response.iter_content(chunk_size=1024 * 256):
-                if cancel_event is not None and cancel_event.is_set():
-                    raise CancelledError("FFmpeg indirmesi iptal edildi.")
-                if not chunk:
-                    continue
-                handle.write(chunk)
-                written += len(chunk)
-                if progress_cb and total:
-                    progress_cb(min(0.99, written / total), "İndiriliyor")
+            if resume_from and response.status_code != 206:
+                resume_from = 0
+                total = total or 0
+
+            expected = resume_from + total if total else 0
+            if expected and _free_bytes(target.parent) < expected * 2:
+                raise FFmpegDownloadError(
+                    "FFmpeg indirmek için yeterli disk alanı yok.\n"
+                    f"Gereken: yaklaşık {expected * 2 / (1024 ** 3):.2f} GB"
+                )
+
+            mode = "ab" if resume_from else "wb"
+            written = 0
+            with open(part, mode) as handle:
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise CancelledError("FFmpeg indirmesi iptal edildi.")
+                    if not chunk:
+                        continue
+                    handle.write(chunk)
+                    written += len(chunk)
+                    if progress_cb and expected:
+                        progress_cb(
+                            min(0.99, (resume_from + written) / expected), "İndiriliyor"
+                        )
+    except CancelledError:
+        part.unlink(missing_ok=True)
+        raise
+    except requests.RequestException as exc:
+        # ONEMLI: OSError'dan once. RequestException, OSError alt sinifidir.
+        size_now = part.stat().st_size if part.exists() else 0
+        raise FFmpegDownloadError(
+            "FFmpeg indirmesi yarıda kesildi (bağlantı).\n"
+            f"Kaldığı yerden devam edilecek ({size_now} bayt).\n{exc}"
+        ) from exc
+    except OSError:
+        part.unlink(missing_ok=True)
+        raise
 
     if part.stat().st_size < 1024 * 1024:
         part.unlink(missing_ok=True)

@@ -11,11 +11,16 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 from PySide6.QtCore import QCoreApplication  # noqa: E402
 
 import app_paths  # noqa: E402
+import fixtures  # noqa: E402
 from ffmpeg_utils import SubtitleStyle  # noqa: E402
 from worker import BatchWorker, JobSettings, ModelCache  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent
-VIDEO = str(PROJECT / "test" / "konusma ingilizce.mp4")
+
+VIDEO = str(fixtures.require_video())
+models_root = app_paths.resolve_models_dir()
+if not (models_root / "faster-whisper-tiny").exists():
+    raise SystemExit(fixtures.skip("Whisper 'tiny' modeli indirilmemiş"))
 
 app = QCoreApplication(sys.argv[:1])
 
@@ -28,13 +33,13 @@ for index in range(2):
             target_lang="tr" if index == 0 else "en",
             output_mode="srt",
             style=SubtitleStyle(),
-            ffmpeg_path=str(PROJECT / "ffmpeg" / "bin" / "ffmpeg.exe"),
-            models_dir=str(app_paths.resolve_models_dir()),
+            ffmpeg_path=fixtures._ffmpeg() or "",
+            models_dir=str(models_root),
             pipeline_mode="off",
         )
     )
 
-cache = ModelCache(app_paths.resolve_models_dir(), log_cb=lambda m: None)
+cache = ModelCache(models_root, log_cb=lambda m: None)
 worker = BatchWorker(jobs, models=cache)
 
 state = {"ok": 0, "failed": 0, "finished": None}
@@ -67,5 +72,13 @@ for line in logs:
 # Kuyrukta modellerin yeniden yuklenmedigi dogrulanir.
 reloads = [line for line in logs if "modeli yükleniyor" in line or "modeli hazırlanıyor" in line]
 print("Model yukleme sayisi:", len(reloads))
-assert state["ok"] == 2, "iki is de tamamlanmali"
+assert state["ok"] == 2, f"iki is de tamamlanmali (ok={state['ok']} failed={state['failed']})"
+assert len(reloads) <= 1, f"model birden fazla yuklendi: {reloads}"
+
+# Cikti adlari hedef dile gore ayrilmali (uzerine yazma yok)
+tr_out = Path(VIDEO).with_name(Path(VIDEO).stem + "_tr.srt")
+en_out = Path(VIDEO).with_name(Path(VIDEO).stem + "_en.srt")
+print("TR cikti:", tr_out.exists(), "| EN cikti:", en_out.exists())
+assert tr_out.exists() and en_out.exists(), "dil eki ayrimi calismadi"
+
 print("\nKUYRUK TESTI GECTI")

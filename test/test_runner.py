@@ -9,12 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import app_paths  # noqa: E402
+import fixtures  # noqa: E402
 from errors import SubtraError  # noqa: E402
 from ffmpeg_utils import SubtitleStyle  # noqa: E402
 from worker import JobHooks, JobRunner, JobSettings, ModelCache  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent
-VIDEO = str(PROJECT / "test" / "konusma ingilizce.mp4")
 
 
 def run(settings: JobSettings, label: str) -> bool:
@@ -46,17 +46,26 @@ def run(settings: JobSettings, label: str) -> bool:
 
 def base(mode: str, **kwargs) -> JobSettings:
     cfg = dict(
-        input_path=VIDEO,
+        input_path=str(VIDEO),
         model_size="tiny",
         target_lang="tr",
         output_mode=mode,
         style=SubtitleStyle(font_size=20),
-        ffmpeg_path=str(PROJECT / "ffmpeg" / "bin" / "ffmpeg.exe"),
+        ffmpeg_path=fixtures._ffmpeg() or "",
         models_dir=str(app_paths.resolve_models_dir()),
     )
     cfg.update(kwargs)
     return JobSettings(**cfg)
 
+
+# --- Fixture ve model kontrolü -------------------------------------------
+VIDEO = fixtures.require_video()
+
+models_root = app_paths.resolve_models_dir()
+if not (models_root / "faster-whisper-tiny").exists():
+    raise SystemExit(fixtures.skip("Whisper 'tiny' modeli indirilmemiş"))
+if not (models_root / "nllb-200-distilled-600M-ct2-int8").exists():
+    raise SystemExit(fixtures.skip("NLLB çeviri modeli indirilmemiş"))
 
 results = {}
 
@@ -69,15 +78,21 @@ results["burn"] = run(base("burn", pipeline_mode="off"), "burn")
 print("=== 3) pipeline acik (zorlanmis) ===")
 results["pipeline"] = run(base("srt", pipeline_mode="on"), "pipeline")
 
-srt_path = PROJECT / "test" / "konusma ingilizce_tr.srt"
+srt_path = VIDEO.with_name(VIDEO.stem + "_tr.srt")
+if not srt_path.exists():
+    srt_path = fixtures.require_srt()
 print("=== 4) SRT ice aktarma (transkripsiyon atlanir) ===")
 results["import"] = run(
     base("srt", input_path="", input_srt=str(srt_path), source_lang="en", pipeline_mode="off"),
     "import",
 )
-# Cikti adi tekrar etmemeli (_tr_tr olmamali)
-import_out = srt_path.parent / "konusma ingilizce_tr.srt"
-print("  Cikti adi tekrarsiz:", import_out.exists())
+
+# Cikti adi kaynak dosyanin uzerine yazmamali (veri kaybi guard'i).
+# konusma ingilizce_tr.srt -> tr icin cikti konusma ingilizce_tr_2.srt olur.
+collision_guard = srt_path.with_name(srt_path.stem + "_2.srt")
+safe = collision_guard.exists() or not srt_path.exists()
+print(f"  Kaynak korundu / cakisma guard'i: {safe} ({collision_guard.name})")
+results["isim"] = safe
 
 print("\nSONUC:", results)
 sys.exit(0 if all(results.values()) else 1)

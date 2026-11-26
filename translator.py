@@ -144,6 +144,13 @@ def ensure_nllb_model(
             progress_cb(1.0)
         return directory
 
+    if _downloads_disabled():
+        raise TranslationError(
+            "NLLB çeviri modeli indirilmemiş ve indirme kapalı "
+            "(SUBTRA_NO_DOWNLOAD=1).\n"
+            f"Beklenen klasör: {directory}"
+        )
+
     if log_cb:
         log_cb("NLLB çeviri modeli indirilecek (yalnızca ilk kullanım).")
 

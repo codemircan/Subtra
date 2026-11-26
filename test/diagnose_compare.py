@@ -1,4 +1,10 @@
-"""Eski ve yeni burn-in ciktisini ayni noktalarda karsilastirir (ozet)."""
+"""Eski ve yeni burn-in ciktisini ayni noktalarda karsilastirir.
+
+Kullanim:
+    py test/diagnose_compare.py <kaynak_video> [eski_cikti.mp4]
+
+Eski cikti verilmezse <kaynak>_tr.mp4 aranir. SRT kaynaktan turetilir.
+"""
 
 import io
 import subprocess
@@ -10,17 +16,29 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import numpy as np
 
+import ffmpeg_bootstrap
 import ffmpeg_utils as fu
 
 PROJECT = Path(__file__).resolve().parent.parent
-FFMPEG = str(PROJECT / "ffmpeg" / "bin" / "ffmpeg.exe")
-FFPROBE = str(PROJECT / "ffmpeg" / "bin" / "ffprobe.exe")
-DOWNLOADS = Path(r"C:\Users\Administrator\Downloads")
-SRC = DOWNLOADS / "ValidStrongAfricanaugurbuzzard.mp4"
+_location = ffmpeg_bootstrap.find_existing()
+if _location is None:
+    print("FFmpeg bulunamadı.")
+    raise SystemExit(1)
+FFMPEG = _location.ffmpeg
+FFPROBE = _location.ffprobe
+
+if len(sys.argv) < 2:
+    print(__doc__)
+    print("Örnek: py test/diagnose_compare.py \"C:\\video\\film.mp4\"")
+    raise SystemExit(2)
+
+SRC = Path(sys.argv[1]).resolve()
 if not SRC.exists():
-    SRC = next(p for p in DOWNLOADS.glob("*.mp4") if not p.stem.endswith("_tr"))
+    print(f"Kaynak bulunamadı: {SRC}")
+    raise SystemExit(2)
+
+OLD = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else SRC.with_name(SRC.stem + "_tr.mp4")
 SRT = SRC.with_name(SRC.stem + "_tr.srt")
-OLD = SRC.with_name(SRC.stem + "_tr.mp4")
 WORK = PROJECT / "test" / "_final"
 WORK.mkdir(parents=True, exist_ok=True)
 NO_WINDOW = 0x08000000

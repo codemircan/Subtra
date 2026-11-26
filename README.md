@@ -279,19 +279,21 @@ py -c "import PySide6, faster_whisper, ctranslate2, tokenizers, requests, psutil
 ### B. Syntax
 
 ```powershell
-py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py
+py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py version.py
 ```
 
 ### C. Unit tests (no network, no models)
 
 ```powershell
-py test/test_subtitles.py
+py test/test_subtitles.py        # subtitle engine
+py test/test_version.py          # single source of version truth
+py test/test_download_resume.py  # HTTP Range resume, local server
+py test/test_logging.py          # log file + no duplicate UI lines
 ```
 
-Coverage: word→sentence grouping, cues from word timings, CPS extension,
-2-line limit, SRT read/write (BOM + CRLF + HTML + unnumbered blocks).
-
-Expected last line: `TUM ALTYAZI TESTLERI GECTI`
+`test_download_resume.py` spins up a local HTTP server that cuts the transfer
+mid-stream, then verifies that `.part` is kept, `Range` is sent, and the final
+SHA256 matches. No internet needed.
 
 ### D. Engine and FFmpeg
 
@@ -304,7 +306,17 @@ Expected: `None` and an FFmpeg version line.
 
 ### E. End to end (real video)
 
-`test/konusma ingilizce.mp4` ships with the repo:
+The test video is **not in the repo** (media is git-ignored). It is generated
+automatically on first use:
+
+```powershell
+py test/make_fixture.py          # generate test/konusma ingilizce.mp4
+py test/make_fixture.py --check  # just report what exists
+```
+
+Generation uses Windows SAPI for English speech plus FFmpeg for the video.
+Without an English SAPI voice the video cannot be produced, and the
+model-dependent tests report `SKIP` instead of failing.
 
 ```powershell
 py test/test_transcribe.py     # chunking + word timestamps
@@ -321,7 +333,20 @@ py test/gui_screenshot.py "test\konusma ingilizce.mp4"
 
 Writes `test/gui_tab_*.png`.
 
-### G. Failure scenarios
+### G. Full suite
+
+```powershell
+py test/run_all.py            # SKIP is not a failure
+py test/run_all.py --strict   # SKIP counts as failure (for CI with models)
+```
+
+Exit codes: `0` all passed (or skipped), `1` a test failed, `77` nothing ran.
+
+Tests never download models: `SUBTRA_NO_DOWNLOAD=1` is set by
+`test/fixtures.py`, so a missing model produces `SKIP`, not a silent
+multi-hundred-MB download.
+
+### H. Failure scenarios
 
 | Scenario | Expected |
 |---|---|
@@ -333,7 +358,7 @@ Writes `test/gui_tab_*.png`.
 | Disk full | "Disk dolu… boş alan açıp tekrar deneyin." |
 | Old VC++ | "ÇALIŞMIYOR" in Settings plus a Turkish explanation |
 
-### H. Video quality diagnostics
+### I. Video quality diagnostics
 
 If a video shows pixelation, tearing, or oversized subtitles:
 
@@ -489,7 +514,9 @@ hardware, FFmpeg, model inventory, settings and the last 200 log lines.
 
 ## License
 
-MIT. Bundled models keep their own licences:
+Subtra is released under the **MIT License** — see [LICENSE](LICENSE).
+
+Downloaded models keep their own licences:
 
 - faster-whisper / Whisper: MIT
 - NLLB-200: CC-BY-NC-4.0 (check your licence needs for commercial use)

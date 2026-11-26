@@ -11,11 +11,16 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
+import app_paths  # noqa: E402
 import logging_setup  # noqa: E402
+import fixtures  # noqa: E402
 from gui import MainWindow  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parent.parent
-VIDEO = str(PROJECT / "test" / "konusma ingilizce.mp4")
+VIDEO = str(fixtures.require_video())
+_models = app_paths.resolve_models_dir()
+if not (_models / "faster-whisper-tiny").exists():
+    raise SystemExit(fixtures.skip("Whisper 'tiny' modeli indirilmemiş"))
 STATE = {"done": False, "ok": 0, "failed": 0, "error": None}
 
 
@@ -74,7 +79,9 @@ def main() -> int:
         assert status == "Tamamlandı", f"beklenmeyen durum: {status}"
 
         window.tabs.setCurrentIndex(2)
-        srt = PROJECT / "test" / "konusma ingilizce_tr.srt"
+        srt = Path(VIDEO).with_name(Path(VIDEO).stem + "_tr.srt")
+        if not srt.exists():
+            srt = fixtures.require_srt()
         window._set_srt_input(str(srt))
         window.srt_lang_combo.setCurrentIndex(window.srt_lang_combo.findData("en"))
         window.radio_srt.setChecked(True)

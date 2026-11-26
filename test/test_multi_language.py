@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import app_paths  # noqa: E402
+import fixtures  # noqa: E402
 from ffmpeg_utils import SubtitleStyle  # noqa: E402
 from worker import JobHooks, JobRunner, JobSettings, ModelCache  # noqa: E402
 
@@ -15,30 +16,15 @@ PROJECT = Path(__file__).resolve().parent.parent
 WORK = PROJECT / "test" / "_langs"
 WORK.mkdir(parents=True, exist_ok=True)
 
-# Kaynak: test videosu + mevcut Ingilizce SRT
-SOURCE_VIDEO = PROJECT / "test" / "konusma ingilizce.mp4"
-SOURCE_SRT = PROJECT / "test" / "konusma ingilizce_tr.srt"
-
-# Temiz bir SRT (Ingilizce kaynak metin) hazirla
+# SRT cevirisi video gerektirmez; kaynak metni fixture'dan aliyoruz.
 EN_SRT = WORK / "konusma ingilizce.srt"
-EN_SRT.write_text(
-    "1\n00:00:00,180 --> 00:00:04,400\n"
-    "Hello and welcome. This is a test of the automatic subtitle system.\n\n"
-    "2\n00:00:05,380 --> 00:00:08,200\n"
-    "The quick brown fox jumps over the lazy dog.\n\n"
-    "3\n00:00:08,800 --> 00:00:11,900\n"
-    "Machine translation should handle these sentences correctly.\n\n"
-    "4\n00:00:12,760 --> 00:00:14,300\n"
-    "Thank you for watching.\n",
-    encoding="utf-8",
-)
-VIDEO_COPY = WORK / "konusma ingilizce.mp4"
-if not VIDEO_COPY.exists():
-    import shutil
+EN_SRT.write_text(fixtures.require_srt().read_text(encoding="utf-8"), encoding="utf-8")
 
-    shutil.copy2(SOURCE_VIDEO, VIDEO_COPY)
+models_root = app_paths.resolve_models_dir()
+if not (models_root / "nllb-200-distilled-600M-ct2-int8").exists():
+    raise SystemExit(fixtures.skip("NLLB çeviri modeli indirilmemiş"))
 
-cache = ModelCache(app_paths.resolve_models_dir(), log_cb=lambda m: None)
+cache = ModelCache(models_root, log_cb=lambda m: None)
 results: dict[str, str] = {}
 failures: list[str] = []
 
@@ -50,8 +36,8 @@ def run(language: str, label: str) -> Path | None:
         target_lang=language,
         output_mode="srt",
         style=SubtitleStyle(),
-        ffmpeg_path=str(PROJECT / "ffmpeg" / "bin" / "ffmpeg.exe"),
-        models_dir=str(app_paths.resolve_models_dir()),
+        ffmpeg_path=fixtures._ffmpeg() or "",
+        models_dir=str(models_root),
         pipeline_mode="off",
         source_lang="en",
     )

@@ -15,8 +15,8 @@ from pathlib import Path
 import app_paths
 import logging_setup
 from hardware import hardware_info
+from version import __version__ as APP_VERSION
 
-APP_VERSION = "2.0.0"
 SEPARATOR = "=" * 70
 
 

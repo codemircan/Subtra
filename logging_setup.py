@@ -36,6 +36,7 @@ class _QueueHandler(logging.Handler):
 _ui_queue: "queue.Queue[str]" = queue.Queue()
 _initialised = threading.Lock()
 _ready = False
+_file_handler: RotatingFileHandler | None = None
 
 
 def log_file_path() -> Path:
@@ -44,7 +45,7 @@ def log_file_path() -> Path:
 
 def setup_logging(level: int = logging.INFO) -> logging.Logger:
     """Kok logger'i bir kez yapilandirir (idempotent)."""
-    global _ready
+    global _ready, _file_handler
     with _initialised:
         logger = logging.getLogger(LOGGER_NAME)
         if _ready:
@@ -65,6 +66,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
+            _file_handler = file_handler
         except OSError:
             pass  # log dosyasi acilamazsa uygulama yine calissin
 
@@ -82,6 +84,31 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
         _ready = True
         logger.info("Loglama başlatıldı. Dosya: %s", log_file_path())
         return logger
+
+
+def log_to_file(message: str, level: int = logging.INFO) -> None:
+    """Mesaji YALNIZCA dosyaya yazar (arayuz kuyruguna eklemez).
+
+    Arayuzde zaten gorunen is akisi mesajlari icin kullanilir; boylece
+    panelde tekrar olusmaz ama cokme durumunda kayit dosyada kalir.
+    """
+    setup_logging()
+    if _file_handler is None:
+        return
+    try:
+        record = logging.LogRecord(
+            name=f"{LOGGER_NAME}.worker",
+            level=level,
+            pathname=__file__,
+            lineno=0,
+            msg=message,
+            args=(),
+            exc_info=None,
+        )
+        _file_handler.handle(record)
+    except Exception:
+        pass
+
 
 
 def get_logger(suffix: str = "") -> logging.Logger:

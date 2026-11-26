@@ -279,13 +279,15 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 ### C. Birim testleri (ağ/model gerekmez)
 
 ```powershell
-py test/test_subtitles.py
+py test/test_subtitles.py        # altyazı motoru
+py test/test_version.py          # sürüm tek kaynak
+py test/test_download_resume.py  # HTTP Range ile devam ettirme (yerel sunucu)
+py test/test_logging.py          # log dosyası + panelde tekrar yok
 ```
 
-Kapsam: kelime→cümle gruplama, kelime damgasından cue, CPS uzatma,
-2 satır sınırı, SRT yaz/oku (BOM + CRLF + HTML + numarasız blok).
-
-Beklenen son satır: `TUM ALTYAZI TESTLERI GECTI`
+`test_download_resume.py` yerel bir HTTP sunucusu açar, aktarımı yarıda keser
+ve `.part` dosyasının korunduğunu, `Range` başlığının gönderildiğini ve son
+SHA256'nın eşleştiğini doğrular. İnternet gerekmez.
 
 ### D. Motor ve FFmpeg
 
@@ -298,7 +300,16 @@ Beklenen: `None` ve FFmpeg sürüm satırı.
 
 ### E. Uçtan uca (gerçek video)
 
-`test/konusma ingilizce.mp4` hazır gelir:
+Test videosu **repoda yok** (medya dosyaları git'te yok sayılır). İlk
+kullanımda otomatik üretilir:
+
+```powershell
+py test/make_fixture.py          # test/konusma ingilizce.mp4 üret
+py test/make_fixture.py --check  # sadece durumu göster
+```
+
+Üretim Windows SAPI (İngilizce konuşma) + FFmpeg ile yapılır. İngilizce SAPI
+sesi yoksa video üretilemez ve modele bağlı testler `SKIP` verir (hata değil).
 
 ```powershell
 py test/test_transcribe.py     # dilimleme + kelime damgası
@@ -315,6 +326,18 @@ py test/gui_screenshot.py "test\konusma ingilizce.mp4"
 
 `test/gui_tab_*.png` dosyalarını üretir.
 
+### G. Tüm paket
+
+```powershell
+py test/run_all.py            # SKIP hata sayılmaz
+py test/run_all.py --strict   # SKIP de hata (CI için)
+```
+
+Çıkış kodları: `0` hepsi geçti/atlandı, `1` başarısız var, `77` hiçbiri koşmadı.
+
+Testler **asla model indirmez**: `test/fixtures.py` `SUBTRA_NO_DOWNLOAD=1`
+ayarlar; model yoksa test `SKIP` verir, sessizce yüzlerce MB indirmez.
+
 ### G. Hata senaryoları
 
 | Senaryo | Beklenen |
@@ -327,7 +350,7 @@ py test/gui_screenshot.py "test\konusma ingilizce.mp4"
 | Disk dolu | "Disk dolu… boş alan açıp tekrar deneyin." |
 | VC++ eski | Ayarlar'da "ÇALIŞMIYOR" + Türkçe açıklama |
 
-### H. Video kalite teşhisi
+### I. Video kalite teşhisi
 
 Bir videoda piksellenme, yırtılma veya dev altyazı görürseniz:
 
@@ -483,7 +506,9 @@ donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
 
 ## Lisans
 
-MIT. Kullanılan modeller kendi lisanslarına tabidir:
+Subtra **MIT Lisansı** ile yayımlanır — bkz. [LICENSE](../LICENSE).
+
+İndirilen modeller kendi lisanslarına tabidir:
 
 - faster-whisper / Whisper: MIT
 - NLLB-200: CC-BY-NC-4.0 (ticari kullanım için lisansınızı kontrol edin)
