@@ -70,7 +70,7 @@ MODEL_HINTS = {
     "medium": "yüksek kalite, CPU'da yavaş (~1.5 GB)",
 }
 
-QUEUE_COLUMNS = ("Dosya", "Durum", "Çıktı")
+QUEUE_COLUMNS = ("Dosya", "Hedef dil", "Durum", "Çıktı")
 
 
 # --------------------------------------------------------------------------
@@ -413,12 +413,32 @@ class MainWindow(QMainWindow):
         self.queue_table.setHorizontalHeaderLabels(list(QUEUE_COLUMNS))
         self.queue_table.verticalHeader().setVisible(False)
         self.queue_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.queue_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         header = self.queue_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.queue_table.setColumnWidth(1, 110)
+        self.queue_table.setColumnWidth(2, 100)
         layout.addWidget(self.queue_table, 1)
+
+        # Dosya başına hedef dil: satır seçilip buradan değiştirilir.
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Seçili satırın hedef dili:"))
+        self.queue_target_combo = QComboBox()
+        for code, name in target_options():
+            self.queue_target_combo.addItem(name, code)
+        target_row.addWidget(self.queue_target_combo)
+        self.queue_apply_target = QPushButton("Uygula")
+        self.queue_apply_target.clicked.connect(self._apply_queue_target)
+        target_row.addWidget(self.queue_apply_target)
+        self.queue_apply_all = QPushButton("Tümüne Uygula")
+        self.queue_apply_all.clicked.connect(self._apply_queue_target_all)
+        target_row.addWidget(self.queue_apply_all)
+        target_row.addWidget(
+            _make_hint("Her dosya farklı dile çevrilebilir; transkript bir kez çıkarılır."), 1
+        )
+        layout.addLayout(target_row)
 
         self.queue_summary = _make_hint("Kuyruk boş. İş seçenekleri 'Video' sekmesinden alınır.")
         layout.addWidget(self.queue_summary)
@@ -593,6 +613,34 @@ class MainWindow(QMainWindow):
         self.crf_hint = _make_hint("")
         crf_row.addWidget(self.crf_hint, 1)
         quality_layout.addLayout(crf_row)
+
+        # Whisper batch (hız) ------------------------------------------------
+        batch_row = QHBoxLayout()
+        batch_row.addWidget(QLabel("Whisper batch boyutu:"))
+        self.batch_spin = QSpinBox()
+        self.batch_spin.setRange(0, 32)
+        self.batch_spin.setSpecialValueText("Kapalı")
+        self.batch_spin.setValue(0)
+        batch_row.addWidget(self.batch_spin)
+        self.batch_hint = _make_hint("")
+        batch_row.addWidget(self.batch_hint, 1)
+        quality_layout.addLayout(batch_row)
+
+        # Transkript önbelleği ----------------------------------------------
+        self.cache_check = QCheckBox(
+            "Transkript önbelleği (aynı videoyu başka dile çevirirken Whisper'ı atla)"
+        )
+        self.cache_check.setChecked(True)
+        quality_layout.addWidget(self.cache_check)
+
+        cache_row = QHBoxLayout()
+        self.cache_info = _make_hint("")
+        cache_row.addWidget(self.cache_info, 1)
+        self.cache_clear_button = QPushButton("Transkript Önbelleğini Temizle")
+        self.cache_clear_button.clicked.connect(self._clear_transcript_cache)
+        cache_row.addWidget(self.cache_clear_button)
+        quality_layout.addLayout(cache_row)
+
         layout.addWidget(quality_box)
 
         # FFmpeg ------------------------------------------------------------
@@ -730,6 +778,18 @@ class MainWindow(QMainWindow):
         self.crf_spin.valueChanged.connect(self._update_crf_hint)
         self._update_crf_hint()
 
+        try:
+            self.batch_spin.setValue(int(self._settings.value("whisper_batch_size", 0)))
+        except (TypeError, ValueError):
+            self.batch_spin.setValue(0)
+        self.batch_spin.valueChanged.connect(self._update_batch_hint)
+        self._update_batch_hint()
+
+        cached = self._settings.value("use_transcript_cache", True, bool)
+        self.cache_check.setChecked(cached)
+        self.cache_check.stateChanged.connect(self._refresh_cache_info)
+        self._refresh_cache_info()
+
         source_lang = self._settings.value("srt_source_lang", "", str)
         index = self.srt_lang_combo.findData(source_lang)
         if index >= 0:
@@ -765,6 +825,8 @@ class MainWindow(QMainWindow):
         self._settings.setValue("max_cps", self.cps_spin.value())
         self._settings.setValue("word_timestamps", self.words_check.isChecked())
         self._settings.setValue("burn_crf", self.crf_spin.value())
+        self._settings.setValue("whisper_batch_size", self.batch_spin.value())
+        self._settings.setValue("use_transcript_cache", self.cache_check.isChecked())
         self._settings.setValue("srt_source_lang", self.srt_lang_combo.currentData())
         self._settings.setValue("srt_target_lang", self.srt_target_combo.currentData())
         self._settings.setValue("srt_output_mode", self.srt_output_combo.currentData())
@@ -785,6 +847,63 @@ class MainWindow(QMainWindow):
 
     def _update_style_enabled(self, *_args) -> None:
         self.style_box.setEnabled(self._current_mode() == "burn" and not getattr(self, "_busy", False))
+
+    def _update_batch_hint(self) -> None:
+        """Batch boyutunun hız/bellek etkisini açıklar."""
+        value = self.batch_spin.value()
+        if value <= 1:
+            text = "kapalı — pencere pencere işlenir"
+        elif value <= 8:
+            text = "açık — CPU'da ölçülen kazanç: tiny 1.8×, small 1.2×"
+        else:
+            text = "yüksek — daha hızlı olabilir ama bellek tüketimi artar"
+        self.batch_hint.setText(f"{text}. Varsayılan kapalı; sorun çıkarsa kapalı bırakın.")
+
+    def _refresh_cache_info(self, *_args) -> None:
+        """Transkript önbelleğinin boyutunu ve kayıt sayısını gösterir."""
+        import app_paths
+        import transcript_cache
+
+        directory = app_paths.transcripts_dir()
+        files = list(directory.glob("*.json"))
+        size = transcript_cache.total_size(directory)
+        enabled = self.cache_check.isChecked()
+
+        if not enabled:
+            self.cache_info.setText(
+                f"Önbellek kapalı — {len(files)} kayıt ({size / 1024 / 1024:.1f} MB) kullanılmıyor."
+            )
+        elif not files:
+            self.cache_info.setText("Önbellek boş — ilk videoda dolacak.")
+        else:
+            self.cache_info.setText(
+                f"{len(files)} transkript önbellekte ({size / 1024 / 1024:.1f} MB). "
+                "Aynı video tekrar işlenirse transkripsiyon atlanır."
+            )
+        self.cache_clear_button.setEnabled(bool(files) and not self._is_busy())
+
+    def _clear_transcript_cache(self) -> None:
+        import app_paths
+        import transcript_cache
+
+        directory = app_paths.transcripts_dir()
+        files = list(directory.glob("*.json"))
+        if not files:
+            QMessageBox.information(self, "Önbellek boş", "Silinecek transkript yok.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Transkript önbelleğini temizle",
+            f"{len(files)} transkript silinsin mi?\n\n"
+            "Silinirse aynı videolar için Whisper yeniden çalışır.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        removed = transcript_cache.clear(directory)
+        self._append_log(f"Transkript önbelleği temizlendi: {removed} kayıt.")
+        self._refresh_cache_info()
 
     def _update_crf_hint(self) -> None:
         """CRF degerinin kalite/boyut etkisini aciklar."""
@@ -1091,6 +1210,8 @@ class MainWindow(QMainWindow):
             cpu_threads=self.threads_spin.value(),
             num_workers=self.workers_spin.value(),
             burn_crf=self.crf_spin.value(),
+            batch_size=self.batch_spin.value(),
+            use_transcript_cache=self.cache_check.isChecked(),
             source_lang=self.srt_lang_combo.currentData() or "",
         )
 
@@ -1200,15 +1321,22 @@ class MainWindow(QMainWindow):
             self._add_to_queue(files)
 
     def _add_to_queue(self, files: list[str]) -> None:
-        existing = {
-            self.queue_table.item(row, 0).data(Qt.UserRole)
-            for row in range(self.queue_table.rowCount())
-        }
+        # Anahtar (yol, hedef dil): aynı video farklı dillere eklenebilir,
+        # aynı yol+dil ikinci kez eklenmez.
+        existing = set()
+        for row in range(self.queue_table.rowCount()):
+            item = self.queue_table.item(row, 0)
+            if item is not None:
+                existing.add((item.data(Qt.UserRole), self._queue_target(row)))
+
+        default_target = self.target_combo.currentData() or "tr"
         added = 0
+        skipped = 0
         for path in files:
             if Path(path).suffix.lower() not in SUPPORTED_EXTENSIONS:
                 continue
-            if path in existing:
+            if (path, default_target) in existing:
+                skipped += 1
                 continue
             row = self.queue_table.rowCount()
             self.queue_table.insertRow(row)
@@ -1216,14 +1344,61 @@ class MainWindow(QMainWindow):
             name_item.setData(Qt.UserRole, path)
             name_item.setToolTip(path)
             self.queue_table.setItem(row, 0, name_item)
-            self.queue_table.setItem(row, 1, QTableWidgetItem("Bekliyor"))
-            self.queue_table.setItem(row, 2, QTableWidgetItem("—"))
-            existing.add(path)
+            self.queue_table.setItem(row, 1, self._target_item(default_target))
+            self.queue_table.setItem(row, 2, QTableWidgetItem("Bekliyor"))
+            self.queue_table.setItem(row, 3, QTableWidgetItem("—"))
+            existing.add((path, default_target))
             added += 1
         self.queue_table.resizeRowsToContents()
         self._update_queue_summary()
         if added:
             self._append_log(f"Kuyruğa {added} dosya eklendi.")
+        if skipped:
+            self._append_log(
+                f"{skipped} dosya zaten aynı hedef dille kuyrukta; atlandı."
+            )
+
+    @staticmethod
+    def _target_item(code: str) -> QTableWidgetItem:
+        """Hedef dil hücresi: görünen ad, veri olarak kod."""
+        from languages import target_label
+
+        item = QTableWidgetItem(target_label(code))
+        item.setData(Qt.UserRole, code)
+        item.setToolTip(f"Hedef dil: {code}\nDeğiştirmek için satırı seçip aşağıdaki listeden uygulayın.")
+        return item
+
+    def _queue_target(self, row: int) -> str:
+        item = self.queue_table.item(row, 1)
+        if item is not None:
+            code = item.data(Qt.UserRole)
+            if code:
+                return str(code)
+        return self.target_combo.currentData() or "tr"
+
+    def _apply_queue_target(self) -> None:
+        model = self.queue_table.selectionModel()
+        rows = [index.row() for index in model.selectedRows()] if model else []
+        if not rows:
+            QMessageBox.information(
+                self, "Seçim yok", "Hedef dilini değiştirmek için önce satır(lar) seçin."
+            )
+            return
+        code = self.queue_target_combo.currentData() or "tr"
+        for row in rows:
+            self.queue_table.setItem(row, 1, self._target_item(code))
+        self._append_log(
+            f"{len(rows)} satırın hedef dili değiştirildi: "
+            f"{TARGET_LANGUAGES[code]['label'] if code in TARGET_LANGUAGES else code}"
+        )
+        self._update_queue_summary()
+
+    def _apply_queue_target_all(self) -> None:
+        code = self.queue_target_combo.currentData() or "tr"
+        for row in range(self.queue_table.rowCount()):
+            self.queue_table.setItem(row, 1, self._target_item(code))
+        self._append_log("Tüm kuyruğun hedef dili güncellendi.")
+        self._update_queue_summary()
 
     def _remove_selected_queue(self) -> None:
         model = self.queue_table.selectionModel()
@@ -1233,7 +1408,6 @@ class MainWindow(QMainWindow):
         for row in rows:
             self.queue_table.removeRow(row)
         self._update_queue_summary()
-
     def _clear_queue(self) -> None:
         if self._is_busy():
             return
@@ -1247,8 +1421,11 @@ class MainWindow(QMainWindow):
                 "Kuyruk boş. İş seçenekleri 'Video' sekmesinden alınır."
             )
         else:
+            languages = {self._queue_target(row) for row in range(count)}
             self.queue_summary.setText(
-                f"{count} dosya sırada. Modeller bir kez yüklenir, tüm kuyruk boyunca yeniden kullanılır."
+                f"{count} dosya sırada ({len(languages)} farklı hedef dil). "
+                "Modeller bir kez yüklenir; aynı video tekrar işlenirse "
+                "transkript önbellekten alınır."
             )
 
     def _queue_paths(self) -> list[str]:
@@ -1258,6 +1435,17 @@ class MainWindow(QMainWindow):
             if item is not None:
                 paths.append(item.data(Qt.UserRole))
         return paths
+
+    def _queue_jobs(self) -> list:
+        """Kuyruk satırlarından iş listesi (her satır kendi hedef diliyle)."""
+        jobs = []
+        for row in range(self.queue_table.rowCount()):
+            item = self.queue_table.item(row, 0)
+            if item is None:
+                continue
+            path = item.data(Qt.UserRole)
+            jobs.append(self._base_settings(input_path=path, target_lang=self._queue_target(row)))
+        return jobs
 
     def _start_queue(self) -> None:
         if self._is_busy():
@@ -1270,7 +1458,7 @@ class MainWindow(QMainWindow):
             return
 
         self._save_settings()
-        jobs = [self._base_settings(input_path=path) for path in paths]
+        jobs = self._queue_jobs()
         for row in range(self.queue_table.rowCount()):
             self._set_queue_status(row, "Bekliyor", "—")
 
@@ -1299,9 +1487,9 @@ class MainWindow(QMainWindow):
                 status_item.setForeground(QColor("#b91c1c"))
             elif status == "İşleniyor":
                 status_item.setForeground(QColor("#2563eb"))
-            self.queue_table.setItem(row, 1, status_item)
+            self.queue_table.setItem(row, 2, status_item)
             if output != "—":
-                self.queue_table.setItem(row, 2, QTableWidgetItem(output))
+                self.queue_table.setItem(row, 3, QTableWidgetItem(output))
 
     def _on_item_started(self, index: int, path: str) -> None:
         self._set_queue_status(index, "İşleniyor")
@@ -1398,6 +1586,9 @@ class MainWindow(QMainWindow):
             self.ffmpeg_choose_button,
             self.cache_delete_button,
             self.cache_refresh_button,
+            self.queue_apply_target,
+            self.queue_apply_all,
+            self.cache_clear_button,
         ):
             widget.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)

@@ -30,6 +30,8 @@ TESTS = [
     ("İndirme devam ettirme (Range)", ["test/test_download_resume.py"], False),
     ("Log dosyası", ["test/test_logging.py"], False),
     ("Transkripsiyon + dilimleme", ["test/test_transcribe.py"], True),
+    ("Transkript önbelleği + batch", ["test/test_cache_and_batch.py"], True),
+    ("Kuyruk: dosya başına dil", ["test/test_queue_languages.py"], True),
     ("Çoklu hedef dil + dosya adı", ["test/test_multi_language.py"], True),
     ("SRT hedef dil bağımsızlığı", ["test/test_srt_target_lang.py"], True),
     ("Uçtan uca iş akışı", ["test/test_runner.py"], True),

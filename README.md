@@ -77,7 +77,17 @@ git checkout main            # stable release
 
 **Productivity**
 - **Queue tab**: add multiple videos and process them in order. Models load
-  once and stay in memory for the whole queue.
+  once and stay in memory for the whole queue. **Each queue row has its own
+  target language** — one video can be translated into several languages in a
+  single run, and transcription runs only once.
+- **Transcript cache**: the Whisper result is written to
+  `cache/transcripts/` and reused. Translating the same video into a second
+  language skips transcription entirely — measured **2.32×** faster on the
+  test clip (24.6s → 10.6s). The cache key includes file size, mtime, model
+  size and word-timestamp mode, so an edited video or a different model
+  invalidates it. Can be disabled and cleared from Settings.
+- **Whisper batch mode** (Settings): `BatchedInferencePipeline` for faster CPU
+  inference — measured 1.82× on `tiny`, 1.17–1.34× on `small`. Off by default.
 - **Translate SRT tab**: translate an existing `.srt` — transcription is
   skipped, and an optional video enables burn-in/soft-sub. This tab has its
   **own target language and output selection**, independent of the Video tab.
@@ -85,7 +95,7 @@ git checkout main            # stable release
   (`film_tr.srt`, `film_de.srt`). Translating one video into several languages
   never overwrites a previous result.
 - **Cache management**: see models with their sizes in Settings, and delete
-  them.
+  them. Transcript cache size, count and a clear button live next to it.
 
 ---
 
@@ -121,6 +131,7 @@ git checkout main            # stable release
 | `transcriber.py` | Whisper download/load, **chunked** transcription, word timestamps |
 | `translator.py` | NLLB download/load, batch translation, `TranslationPipeline` |
 | `subtitles.py` | Word-based cue building, wrapping, CPS, SRT read/write |
+| `transcript_cache.py` | Transcript cache (JSON, atomic, keyed by file+model) |
 | `ffmpeg_utils.py` | Audio extraction, burn-in, soft-sub, path escaping, disk checks |
 | `ffmpeg_bootstrap.py` | FFmpeg discovery + **automatic download** |
 | `app_paths.py` | `%LOCALAPPDATA%` paths, legacy folder migration |
@@ -279,13 +290,14 @@ py -c "import PySide6, faster_whisper, ctranslate2, tokenizers, requests, psutil
 ### B. Syntax
 
 ```powershell
-py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py version.py
+py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py version.py transcript_cache.py
 ```
 
 ### C. Unit tests (no network, no models)
 
 ```powershell
 py test/test_subtitles.py        # subtitle engine
+py test/test_cache_and_batch.py  # transcript cache + batch (~80s)
 py test/test_version.py          # single source of version truth
 py test/test_download_resume.py  # HTTP Range resume, local server
 py test/test_logging.py          # log file + no duplicate UI lines

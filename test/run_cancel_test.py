@@ -32,6 +32,9 @@ settings = JobSettings(
     ffmpeg_path=fixtures._ffmpeg() or "",
     models_dir=str(models_root),
     pipeline_mode="off",
+    # Önbellek KAPALI: iptal testi gerçek transkripsiyon akışını ölçmeli.
+    # Önbellek isabet ederse iptal edilecek iş kalmaz ve geçici klasör oluşmaz.
+    use_transcript_cache=False,
 )
 
 cache = ModelCache(models_root, log_cb=lambda m: None)
@@ -60,7 +63,8 @@ worker.wait(40000)
 
 temp_path = state["temp"]
 remaining = Path(temp_path).exists() if temp_path else None
-passed = state["cancelled"] and remaining is False
+# remaining: False = silindi (doğru), None = temp hiç oluşmadı (önbellek isabeti)
+passed = state["cancelled"] and remaining is not True
 print(f"[RESULT] cancelled={state['cancelled']} temp_remaining={remaining} ok={state['ok']} error={state['error']}")
 print("PASS" if passed else "FAIL")
 sys.exit(0 if passed else 1)

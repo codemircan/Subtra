@@ -28,6 +28,7 @@ from PySide6.QtCore import QThread, Signal
 import app_paths
 import ffmpeg_utils
 import subtitles as subtitles_mod
+import transcript_cache
 from errors import (
     CancelledError,
     FFmpegError,
@@ -88,6 +89,8 @@ class JobSettings:
     cpu_threads: int = 0              # 0 = otomatik
     num_workers: int = 1
     burn_crf: int = 18                # burn-in kalite (dusuk = daha iyi/buyuk)
+    batch_size: int = 0               # Whisper batched inference (0/1 = kapali)
+    use_transcript_cache: bool = True  # transkript onbellegi kullan
     input_srt: str = ""               # dolu ise transkripsiyon atlanir
     source_lang: str = ""             # SRT ice aktarmada kaynak dil (bos = tahmin)
     output_stem: str = ""             # dolu ise cikti adi bu tabandan uretilir
@@ -528,6 +531,40 @@ class JobRunner:
 
     def _transcribe(self, source: Path, ffmpeg: str, duration: float) -> tuple[str, float, list[dict]]:
         settings = self.settings
+
+        # --- Transkript önbelleği (1. aşama: kontrol) ---------------------
+        # Ses çıkarmadan ÖNCE bakılır: isabet varsa ffmpeg'e hiç gidilmez.
+        cache_key = ""
+        if settings.use_transcript_cache and not settings.input_srt:
+            cache_key = transcript_cache.cache_key(
+                source,
+                settings.model_size,
+                settings.word_timestamps,
+                extra=("batch" if settings.batch_size > 1 else "plain"),
+            )
+            cached = transcript_cache.load(cache_key, app_paths.transcripts_dir())
+            if cached is not None:
+                words = cached.get("words", [])
+                meta = {
+                    "language": cached.get("language", ""),
+                    "language_probability": float(cached.get("language_probability", 0.0) or 0.0),
+                    "duration": cached.get("duration", duration),
+                }
+                if transcript_cache.is_usable(cached, settings.word_timestamps):
+                    info = transcript_cache.info(cache_key, app_paths.transcripts_dir()) or {}
+                    self.hooks.log(
+                        f"Transkript önbellekten alındı — transkripsiyon atlandı "
+                        f"({len(words)} kelime, kaynak: {cached.get('created', '?')}, "
+                        f"önceki süre: {cached.get('transcribe_seconds', 0):.0f}s)"
+                    )
+                    self._stage("Transkripsiyon (önbellek)", P_TRANSCRIBE_END)
+                    self.hooks.progress(P_TRANSCRIBE_END)
+                    return (
+                        meta["language"],
+                        meta["language_probability"],
+                        words,
+                    )
+
         self._temp_dir = Path(tempfile.mkdtemp(prefix="subtra_", dir=str(app_paths.temp_dir())))
         self.hooks.log(f"Geçici klasör: {self._temp_dir}")
 
@@ -615,6 +652,7 @@ class JobRunner:
             detected_box["language"] = code
             detected_box["probability"] = probability
 
+        transcribe_started = time.time()
         self._stage("Konuşma metne çevriliyor", P_WHISPER_MODEL_END)
         meta, segments = transcribe_audio(
             model,
@@ -627,6 +665,7 @@ class JobRunner:
             word_timestamps=settings.word_timestamps,
             sentence_cb=on_sentence if pipeline else None,
             language_cb=on_language,
+            batch_size=settings.batch_size,
         )
 
         detected = meta["language"]
@@ -639,6 +678,31 @@ class JobRunner:
         self.hooks.log(f"Transkripsiyon tamamlandı: {len(segments)} segment")
 
         words = flatten_words(segments)
+
+        # --- Transkript önbelleği (2. aşama: kaydet) ----------------------
+        if cache_key and words:
+            saved = transcript_cache.save(
+                cache_key,
+                app_paths.transcripts_dir(),
+                meta={
+                    "language": detected,
+                    "language_probability": confidence,
+                    "duration": duration,
+                    "model": settings.model_size,
+                    "word_timestamps": settings.word_timestamps,
+                },
+                words=words,
+                source_name=source.name,
+                elapsed=time.time() - transcribe_started,
+            )
+            if saved is not None:
+                self.hooks.log(
+                    f"Transkript önbelleğe yazıldı ({saved.name}); "
+                    "aynı video tekrar işlenirse transkripsiyon atlanır"
+                )
+            else:
+                self.hooks.log("Transkript önbelleğe yazılamadı (önemli değil, iş sürüyor)")
+
         if pipeline and pipeline_obj is not None:
             # Pipeline cevirisi transkripsiyon sirasinda bitti; sonuclari sakla.
             self._pipeline_results = pipeline_obj.finish()

@@ -73,7 +73,17 @@ git checkout main            # kararlı sürüm
 
 **Üretkenlik**
 - **Kuyruk sekmesi**: birden fazla video ekleyin, sırayla işlensin. Modeller
-  bir kez yüklenir, tüm kuyruk boyunca bellekte kalır.
+  bir kez yüklenir, tüm kuyruk boyunca bellekte kalır. **Her kuyruk satırının
+  kendi hedef dili vardır** — tek çalıştırmada bir video birden fazla dile
+  çevrilebilir ve transkripsiyon yalnızca bir kez yapılır.
+- **Transkript önbelleği**: Whisper çıktısı `cache/transcripts/` altına
+  yazılır ve yeniden kullanılır. Aynı videoyu ikinci bir dile çevirmek
+  transkripsiyonu tamamen atlar — test klibinde **2.32×** daha hızlı ölçüldü
+  (24.6 sn → 10.6 sn). Anahtar dosya boyutu, mtime, model boyutu ve kelime
+  damgası modunu içerir; video düzenlenirse veya model değişirse önbellek
+  geçersiz olur. Ayarlar'dan kapatılabilir ve temizlenebilir.
+- **Whisper batch modu** (Ayarlar): `BatchedInferencePipeline` ile CPU'da daha
+  hızlı çıkarım — ölçülen: `tiny` 1.82×, `small` 1.17–1.34×. Varsayılan kapalı.
 - **SRT Çevir sekmesi**: var olan `.srt` dosyasını çevirin — transkripsiyon
   atlanır, isteğe bağlı video ile burn-in/soft-sub yapılır. Bu sekmenin
   **kendi hedef dil ve çıktı seçimi** vardır; Video sekmesinden bağımsızdır.
@@ -81,6 +91,8 @@ git checkout main            # kararlı sürüm
   `film_de.srt`). Aynı video farklı dillere çevrildiğinde dosyalar birbirinin
   üzerine yazmaz.
 - **Önbellek yönetimi**: Ayarlar'da modelleri boyutlarıyla görün, seçip silin.
+  Transkript önbelleğinin boyutu, kayıt sayısı ve temizleme düğmesi hemen
+  yanındadır.
 
 ---
 
@@ -115,6 +127,7 @@ git checkout main            # kararlı sürüm
 | `transcriber.py` | Whisper indirme/yükleme, **parçalı** transkripsiyon, kelime damgası |
 | `translator.py` | NLLB indirme/yükleme, batch çeviri, `TranslationPipeline` |
 | `subtitles.py` | Kelime tabanlı cue üretimi, satır sarma, CPS, SRT yaz/oku |
+| `transcript_cache.py` | Transkript önbelleği (JSON, atomik, dosya+model anahtarlı) |
 | `ffmpeg_utils.py` | Ses çıkarma, burn-in, soft-sub, yol escape, disk kontrolü |
 | `ffmpeg_bootstrap.py` | FFmpeg bulma + **otomatik indirme** |
 | `app_paths.py` | `%LOCALAPPDATA%` yolları, eski klasör taşıma |
@@ -273,13 +286,14 @@ py -c "import PySide6, faster_whisper, ctranslate2, tokenizers, requests, psutil
 ### B. Sözdizimi
 
 ```powershell
-py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py
+py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles.py ffmpeg_utils.py languages.py app_paths.py hardware.py logging_setup.py error_report.py ffmpeg_bootstrap.py errors.py version.py transcript_cache.py
 ```
 
 ### C. Birim testleri (ağ/model gerekmez)
 
 ```powershell
 py test/test_subtitles.py        # altyazı motoru
+py test/test_cache_and_batch.py  # transkript önbelleği + batch (~80 sn)
 py test/test_version.py          # sürüm tek kaynak
 py test/test_download_resume.py  # HTTP Range ile devam ettirme (yerel sunucu)
 py test/test_logging.py          # log dosyası + panelde tekrar yok

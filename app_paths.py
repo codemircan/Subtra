@@ -113,6 +113,13 @@ def temp_dir() -> Path:
     return directory
 
 
+def transcripts_dir() -> Path:
+    """Transkript önbelleği (Whisper çıktısı, dile göre yeniden kullanılır)."""
+    directory = cache_dir() / "transcripts"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def legacy_models_dir() -> Path | None:
     """Eski surumlerdeki `<proje>\\models` klasoru (varsa)."""
     candidate = app_root() / "models"
