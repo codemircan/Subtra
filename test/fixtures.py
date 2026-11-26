@@ -166,13 +166,18 @@ def ensure_video(force: bool = False, log=print) -> Path | None:
 
 
 def require_video(log=print) -> Path:
-    """Video yolu veya FixtureMissing."""
+    """Video yolu; üretilemezse test SKIP (exit 77) ile sonlanır.
+
+    Tüm çağıranlar test betikleri olduğu için burada doğrudan SystemExit
+    kullanılıyor; aksi hâlde yakalanmayan istisna "başarısız" sayılırdı.
+    """
     path = ensure_video(log=log)
     if path is None:
-        raise FixtureMissing(
-            "Test videosu yok ve üretilemedi.\n"
-            "Üretmek için: py test/make_fixture.py"
-        )
+        print()
+        print("  SKIP: test videosu yok ve üretilemedi.")
+        print("  Üretmek için: py test/make_fixture.py")
+        print("  (ffmpeg + Windows'ta İngilizce SAPI sesi gerekir)")
+        raise SystemExit(SKIP_CODE)
     return path
 
 
