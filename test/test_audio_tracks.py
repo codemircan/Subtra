@@ -10,6 +10,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import ffmpeg_bootstrap
 import ffmpeg_utils as fu
+import fixtures
 from ffmpeg_utils import SubtitleStyle
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -19,8 +20,7 @@ NO_WINDOW = 0x08000000
 
 loc = ffmpeg_bootstrap.find_existing()
 if loc is None:
-    print("FFmpeg bulunamadı")
-    sys.exit(1)
+    raise SystemExit(fixtures.skip("FFmpeg bulunamadı (otomatik indirme testlerde kapalı)"))
 FFMPEG, FFPROBE = loc.ffmpeg, loc.ffprobe
 
 checks = []
