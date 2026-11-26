@@ -11,7 +11,6 @@ Oncelik sirasi:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import shutil
 import subprocess
@@ -385,11 +384,3 @@ def ensure_ffmpeg(
         )
 
     return download_ffmpeg(progress_cb, log_cb, cancel_event)
-
-
-def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

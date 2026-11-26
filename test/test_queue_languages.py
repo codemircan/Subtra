@@ -130,6 +130,9 @@ def main() -> int:
         print(f"   [BATCH] ok={ok} failed={failed} süre={elapsed}")
         QTimer.singleShot(300, finish)
 
+    def on_item_failed(index, message):
+        print(f"   [ITEM {index} HATA] {message.splitlines()[0] if message else ''}")
+
     def finish():
         outputs = []
         for row in range(window.queue_table.rowCount()):
@@ -155,6 +158,7 @@ def main() -> int:
     window._start_queue()
     assert window._batch is not None, "kuyruk başlamadı"
     window._batch.batch_finished.connect(on_batch)
+    window._batch.item_failed.connect(on_item_failed)
     QTimer.singleShot(600000, app.quit)
 
     app.exec()

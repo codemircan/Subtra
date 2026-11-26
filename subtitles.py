@@ -73,6 +73,11 @@ def strip_markup(text: str) -> str:
     return _clean(_ASS_TAG.sub("", _HTML_TAG.sub("", text or "")))
 
 
+def parse_timestamp(value: str) -> float:
+    """SRT zaman damgasini saniyeye cevirir (disa acik)."""
+    return _parse_timestamp(value)
+
+
 def cue_char_count(text: str) -> int:
     return len(text.replace("\n", " "))
 

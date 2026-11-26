@@ -38,6 +38,7 @@ from errors import (
     SubtraError,
 )
 from ffmpeg_utils import SubtitleStyle
+import hardware as hardware_info_module
 from hardware import hardware_info
 from languages import TARGET_LANGUAGES, language_label, whisper_to_nllb
 from transcriber import (
@@ -91,10 +92,11 @@ class JobSettings:
     burn_crf: int = 18                # burn-in kalite (dusuk = daha iyi/buyuk)
     batch_size: int = 0               # Whisper batched inference (0/1 = kapali)
     use_transcript_cache: bool = True  # transkript onbellegi kullan
+    keep_temp: bool = False
+    overwrite: bool = True            # var olan cikti dosyasinin uzerine yazilsin mi
+    skip_preview: bool = False        # SRT onay diyalogu gosterilmesin
     input_srt: str = ""               # dolu ise transkripsiyon atlanir
     source_lang: str = ""             # SRT ice aktarmada kaynak dil (bos = tahmin)
-    output_stem: str = ""             # dolu ise cikti adi bu tabandan uretilir
-    overwrite: bool = True            # var olan ciktinin uzerine yazilsin mi
 
     def resolved_pipeline(self) -> bool:
         if self.pipeline_mode == "on":
@@ -142,7 +144,27 @@ class JobSettings:
         if name.lower() == stem.lower():
             name = base + suffix + "_2"
 
-        return source.with_name(name)
+        target = source.with_name(name)
+
+        # overwrite=False: var olan ciktiyi ezme, bos bir ad bul.
+        # (.srt ve .mp4 ayni tabani paylasir; ikisi de doluysa artir.)
+        if not self.overwrite and self._outputs_exist(target):
+            counter = 2
+            while counter < 1000:
+                candidate = source.with_name(f"{name}_{counter}")
+                if not self._outputs_exist(candidate):
+                    target = candidate
+                    break
+                counter += 1
+
+        return target
+
+    @staticmethod
+    def _outputs_exist(base: Path) -> bool:
+        """Ayni tabana ait .srt veya video ciktisi var mi?"""
+        if base.with_suffix(".srt").exists():
+            return True
+        return any(base.with_suffix(ext).exists() for ext in (".mp4", ".mkv"))
 
 
 # --------------------------------------------------------------------------
@@ -188,6 +210,10 @@ class ModelCache:
         self._whisper = None
         self._whisper_key = None
 
+    def has_whisper(self) -> bool:
+        """Whisper modeli su anda bellekte mi?"""
+        return self._whisper is not None
+
     # -- nllb --------------------------------------------------------------
     def nllb(self, threads: int, progress_cb=None, log_cb=None, cancel_event=None) -> NllbTranslator:
         with self._lock:
@@ -212,6 +238,10 @@ class ModelCache:
     def release_nllb(self) -> None:
         self._nllb = None
         self._nllb_threads = None
+
+    def has_nllb(self) -> bool:
+        """Ceviri modeli su anda bellekte mi?"""
+        return self._nllb is not None
 
     def release_all(self) -> None:
         self.release_whisper()
@@ -291,6 +321,10 @@ class JobHooks:
     stage: Callable[[str, int], None] = lambda text, percent: None
     progress: Callable[[int], None] = lambda percent: None
     language: Callable[[str, str, float], None] = lambda code, label, conf: None
+    # SRT yazildiktan sonra, video render edilmeden once cagrilir.
+    # (devam_et: bool, sadece_srt: bool) dondurur.
+    # None ise onizleme yapilmaz (headless/test).
+    preview: Callable[[str, str], tuple[bool, bool]] | None = None
 
 
 class JobRunner:
@@ -336,6 +370,20 @@ class JobRunner:
         if self._cancel.is_set():
             raise CancelledError("İşlem iptal edildi.")
 
+    def _will_translate(self) -> bool:
+        """Bu iş çeviri yapacak mı? (NLLB bellekte kalacak mı)"""
+        settings = self.settings
+        target = settings.target_lang
+        if target not in TARGET_LANGUAGES:
+            return False
+        if settings.input_srt:
+            source = (settings.source_lang or "").strip().lower()
+            if source:
+                return whisper_to_nllb(source) != TARGET_LANGUAGES[target]["nllb"]
+            return True  # kaynak bilinmiyor: çeviri olabilir
+        # Video: dil henüz bilinmiyor, çeviri gerekebilir varsay.
+        return True
+
     @staticmethod
     def _map(fraction: float, start: float, end: float) -> int:
         fraction = max(0.0, min(1.0, fraction))
@@ -345,6 +393,24 @@ class JobRunner:
     def _execute(self) -> tuple[str, str, str]:
         settings = self.settings
         self._stage("Hazırlanıyor", 0)
+
+        # Bellek kontrolü: model yüklemeden ÖNCE, net hata ile dur.
+        # Kuyrukta modeller zaten bellekteyse yeniden sayma.
+        needs_translation = self._will_translate()
+        whisper_loaded = self.models.has_whisper()
+        nllb_loaded = self.models.has_nllb()
+        enough, memory_message = hardware_info_module.check_memory(
+            settings.model_size,
+            with_translation=needs_translation,
+            skip_whisper=whisper_loaded,
+            skip_nllb=nllb_loaded,
+        )
+        self.hooks.log(memory_message)
+        if not enough:
+            raise SubtraError(memory_message)
+        warning = hardware_info_module.memory_warning(settings.model_size)
+        if warning:
+            self.hooks.log(warning)
 
         ffmpeg_location = self._prepare_ffmpeg()
         ffmpeg = ffmpeg_location.ffmpeg
@@ -441,10 +507,39 @@ class JobRunner:
         self._stage("SRT hazır", P_SRT_END)
         self._check_cancel()
 
-        # --- 4) Video cikisi ----------------------------------------------
-        summary = _summary(final_cues, detected, settings.target_lang, report, time.time() - self._started_at)
+        # --- Önizleme / düzenleme (video render edilmeden ÖNCE) -----------
         mode = settings.output_mode
+        if self.hooks.preview is not None and (mode != "srt" and source_video is not None):
+            preview_summary = _summary(
+                final_cues, detected, settings.target_lang, report,
+                time.time() - self._started_at,
+            )
+            self._stage("Altyazı onayı bekleniyor", P_SRT_END)
+            proceed, only_srt = self.hooks.preview(str(srt_path), preview_summary)
+            if not proceed:
+                raise CancelledError("Kullanıcı altyazı önizlemesinde vazgeçti.")
+            if only_srt:
+                self.hooks.log("Önizlemede 'yalnızca .srt' seçildi; video üretilmedi.")
+                mode = "srt"
+            else:
+                # Kullanıcı düzenlemiş olabilir: SRT'yi diskten yeniden oku.
+                try:
+                    reloaded = subtitles_mod.read_srt(srt_path)
+                except Exception:
+                    reloaded = []
+                if reloaded:
+                    final_cues = reloaded
+                    self.hooks.log(
+                        f"Düzenlenmiş altyazı okundu: {len(final_cues)} satır"
+                    )
+                self._stage("SRT onaylandı", P_SRT_END)
 
+        summary = _summary(
+            final_cues, detected, settings.target_lang, report,
+            time.time() - self._started_at,
+        )
+
+        # --- 4) Video cikisi ----------------------------------------------
         if mode == "srt" or source_video is None:
             if mode != "srt" and source_video is None:
                 self.hooks.log("Video seçilmedi: yalnızca SRT üretildi.")
@@ -849,9 +944,13 @@ class VideoWorker(QThread):
     stage_changed = Signal(str)
     progress_changed = Signal(int)
     language_detected = Signal(str, str, float)  # kod, ad, guven
+    preview_requested = Signal(str, str)         # srt yolu, ozet (render oncesi)
     finished_ok = Signal(str, str, str)          # video, srt, ozet
     failed = Signal(str)
     cancelled = Signal()
+
+    # Onizleme yaniti icin ust sinir: GUI kapanirsa is sonsuza kadar beklemesin.
+    PREVIEW_TIMEOUT_SECONDS = 3600.0
 
     def __init__(self, settings: JobSettings, parent=None, models: ModelCache | None = None) -> None:
         super().__init__(parent)
@@ -860,18 +959,41 @@ class VideoWorker(QThread):
         self._owns_models = models is None
         self._runner: JobRunner | None = None
         self._cancel_event = threading.Event()
+        self._preview_event = threading.Event()
+        self._preview_result: tuple[bool, bool] = (True, False)
 
     def cancel(self) -> None:
         self._cancel_event.set()
+        # Onizleme bekleniyorsa is birakilsin.
+        self._preview_event.set()
         if self._runner is not None:
             self._runner.cancel()
 
+    def submit_preview_result(self, proceed: bool, only_srt: bool = False) -> None:
+        """GUI tarafindan cagrilir: onizleme sonucunu worker'a iletir."""
+        self._preview_result = (bool(proceed), bool(only_srt))
+        self._preview_event.set()
+
+    def _preview_blocking(self, srt_path: str, summary: str) -> tuple[bool, bool]:
+        """Worker thread'inde calisir: GUI'den yanit gelene kadar bekler."""
+        self._preview_result = (True, False)
+        self._preview_event.clear()
+        self.preview_requested.emit(srt_path, summary)
+        if not self._preview_event.wait(self.PREVIEW_TIMEOUT_SECONDS):
+            self.log.emit("Önizleme yanıtı gelmedi; iş iptal ediliyor.")
+            return (False, False)
+        if self._cancel_event.is_set():
+            return (False, False)
+        return self._preview_result
+
     def _hooks(self) -> JobHooks:
+        preview = None if self.settings.skip_preview else self._preview_blocking
         return JobHooks(
             log=lambda message: self.log.emit(message),
             stage=lambda text, percent: self.stage_changed.emit(text),
             progress=lambda percent: self.progress_changed.emit(percent),
             language=lambda code, label, conf: self.language_detected.emit(code, label, conf),
+            preview=preview,
         )
 
     def run(self) -> None:
@@ -918,6 +1040,7 @@ class BatchWorker(QThread):
     stage_changed = Signal(str)
     progress_changed = Signal(int)
     language_detected = Signal(str, str, float)
+    preview_requested = Signal(int, str, str)   # indeks, srt yolu, ozet
 
     item_started = Signal(int, str)             # indeks, yol
     item_finished = Signal(int, str, str, str)  # indeks, video, srt, ozet
@@ -926,6 +1049,8 @@ class BatchWorker(QThread):
     batch_finished = Signal(int, int, str)      # basarili, hatali, sure
     all_cancelled = Signal()
 
+    PREVIEW_TIMEOUT_SECONDS = 3600.0
+
     def __init__(self, jobs: list[JobSettings], parent=None, models: ModelCache | None = None) -> None:
         super().__init__(parent)
         self.jobs = jobs
@@ -933,19 +1058,41 @@ class BatchWorker(QThread):
         self._owns_models = models is None
         self._cancel_event = threading.Event()
         self._current_index = -1
+        self._preview_event = threading.Event()
+        self._preview_result: tuple[bool, bool] = (True, False)
 
     def cancel(self) -> None:
         self._cancel_event.set()
+        self._preview_event.set()
 
     def cancel_all(self) -> None:
         self._cancel_event.set()
+        self._preview_event.set()
 
-    def _hooks(self) -> JobHooks:
+    def submit_preview_result(self, proceed: bool, only_srt: bool = False) -> None:
+        """GUI tarafindan cagrilir: onizleme sonucunu worker'a iletir."""
+        self._preview_result = (bool(proceed), bool(only_srt))
+        self._preview_event.set()
+
+    def _preview_blocking(self, srt_path: str, summary: str) -> tuple[bool, bool]:
+        self._preview_result = (True, False)
+        self._preview_event.clear()
+        self.preview_requested.emit(self._current_index, srt_path, summary)
+        if not self._preview_event.wait(self.PREVIEW_TIMEOUT_SECONDS):
+            self.log.emit("Önizleme yanıtı gelmedi; iş iptal ediliyor.")
+            return (False, False)
+        if self._cancel_event.is_set():
+            return (False, False)
+        return self._preview_result
+
+    def _hooks(self, skip_preview: bool = False) -> JobHooks:
+        preview = None if skip_preview else self._preview_blocking
         return JobHooks(
             log=lambda message: self.log.emit(message),
             stage=lambda text, percent: self.stage_changed.emit(text),
             progress=lambda percent: self.progress_changed.emit(percent),
             language=lambda code, label, conf: self.language_detected.emit(code, label, conf),
+            preview=preview,
         )
 
     def run(self) -> None:
@@ -962,7 +1109,9 @@ class BatchWorker(QThread):
                     break
                 self._current_index = index
                 self.item_started.emit(index, job.input_path or job.input_srt)
-                runner = JobRunner(job, models, self._hooks(), self._cancel_event)
+                runner = JobRunner(
+                    job, models, self._hooks(skip_preview=job.skip_preview), self._cancel_event
+                )
                 try:
                     video, srt, summary = runner.run()
                     ok += 1

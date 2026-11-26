@@ -8,7 +8,7 @@ build.ps1) buradan okur. Etiketleme ve kod sürümü ayrışmasın diye
 from __future__ import annotations
 
 # SemVer: MAJOR.MINOR.PATCH
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 APP_NAME = "Subtra"
 APP_DESCRIPTION = "CPU tabanlı otomatik altyazı, dil tespiti ve çeviri"

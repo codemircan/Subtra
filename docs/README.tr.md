@@ -93,6 +93,12 @@ git checkout main            # kararlı sürüm
 - **Önbellek yönetimi**: Ayarlar'da modelleri boyutlarıyla görün, seçip silin.
   Transkript önbelleğinin boyutu, kayıt sayısı ve temizleme düğmesi hemen
   yanındadır.
+- **Videoya işlemeden önce altyazı önizlemesi** (2.2.0+): `.srt` yazıldıktan
+  sonra uygulama durur ve düzenlenebilir bir önizleme gösterir. Metni veya
+  zamanlamayı video kodlanmadan önce düzeltebilir, isterseniz yalnızca `.srt`
+  üretebilirsiniz. "Bir daha sorma" seçimi hatırlanır. Ayarlar'dan kapatılır.
+- **Sessiz üzerine yazma yok**: *üzerine yaz* kapalıysa mevcut çıktılar
+  korunur, yeni dosyalar `_2`, `_3`… ekiyle yazılır.
 
 ---
 
@@ -128,6 +134,7 @@ git checkout main            # kararlı sürüm
 | `translator.py` | NLLB indirme/yükleme, batch çeviri, `TranslationPipeline` |
 | `subtitles.py` | Kelime tabanlı cue üretimi, satır sarma, CPS, SRT yaz/oku |
 | `transcript_cache.py` | Transkript önbelleği (JSON, atomik, dosya+model anahtarlı) |
+| `subtitle_preview.py` | Render öncesi SRT önizleme/düzenleme diyaloğu |
 | `ffmpeg_utils.py` | Ses çıkarma, burn-in, soft-sub, yol escape, disk kontrolü |
 | `ffmpeg_bootstrap.py` | FFmpeg bulma + **otomatik indirme** |
 | `app_paths.py` | `%LOCALAPPDATA%` yolları, eski klasör taşıma |
@@ -432,7 +439,8 @@ dist\Subtra\
 | **Karanlık sahnelerde bloklanma/piksellesme** | Burn-in CRF'i 16–18 yapın; eski sürüm 20 kullanıyordu |
 | Arayüz bulanık | Windows ölçekleme %100–150 |
 | **Siyah cmd penceresi açık kalıyor, Qt DPI uyarısı** | `calistir.bat` ile başlatın (`pyw` kullanır, konsol açılmaz) — 2.1.2'de düzeltildi |
-| Bellek yetersiz | Daha küçük model, `num_workers=1` |
+| Bellek yetersiz | Daha küçük model, `num_workers=1` — uygulama artık model
+yüklemeden önce boş RAM'i kontrol eder ve takasa girecekse `medium`'ı reddeder |
 
 Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,
 donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.

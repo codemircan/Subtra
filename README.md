@@ -96,6 +96,12 @@ git checkout main            # stable release
   never overwrites a previous result.
 - **Cache management**: see models with their sizes in Settings, and delete
   them. Transcript cache size, count and a clear button live next to it.
+- **Subtitle preview before rendering** (2.2.0+): after the `.srt` is
+  written, the app pauses and shows an editable preview. Fix wording or
+  timing before the video is encoded, or switch to `.srt` only. "Don't ask
+  again" remembers the choice. Off switch lives in Settings.
+- **No silent overwrites**: with *overwrite* disabled, existing outputs are
+  kept and new files get `_2`, `_3`… suffixes.
 
 ---
 
@@ -132,6 +138,7 @@ git checkout main            # stable release
 | `translator.py` | NLLB download/load, batch translation, `TranslationPipeline` |
 | `subtitles.py` | Word-based cue building, wrapping, CPS, SRT read/write |
 | `transcript_cache.py` | Transcript cache (JSON, atomic, keyed by file+model) |
+| `subtitle_preview.py` | Pre-render SRT preview/edit dialog |
 | `ffmpeg_utils.py` | Audio extraction, burn-in, soft-sub, path escaping, disk checks |
 | `ffmpeg_bootstrap.py` | FFmpeg discovery + **automatic download** |
 | `app_paths.py` | `%LOCALAPPDATA%` paths, legacy folder migration |
@@ -437,7 +444,8 @@ dist\Subtra\
 | **Blocking/pixelation in dark scenes** | Set burn-in CRF to 16–18; older builds used 20 |
 | Blurry UI | Windows scaling between 100-150% |
 | **Black console window stays open, Qt DPI warning** | Launch with `calistir.bat` (uses `pyw`, no console) — fixed in 2.1.2 |
-| Out of memory | Smaller model, `num_workers=1` |
+| Out of memory | Smaller model, `num_workers=1` — the app now checks free RAM
+before loading and refuses `medium` when it would swap |
 
 When reporting a problem, use **Copy error report**; it includes version, OS,
 hardware, FFmpeg, model inventory, settings and the last 200 log lines.

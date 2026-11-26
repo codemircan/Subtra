@@ -600,10 +600,17 @@ def burn_in_subtitles(
             str(video_path),
             "-vf",
             vf_value,
+            # Video: yalnızca ilk görüntü akışı yeniden kodlanır.
             "-map",
             "0:v:0",
+            # Ses: TÜM kanallar korunur (çoklu dil/parça kaybolmasın).
             "-map",
-            "0:a:0",
+            "0:a?",
+            # Altyazı/veri akışları da kopyalanır (varsa).
+            "-map",
+            "0:s?",
+            "-map_metadata",
+            "0",
             "-c:v",
             "libx264",
             "-preset",
@@ -619,6 +626,11 @@ def burn_in_subtitles(
         ]
         if level:
             base += ["-level", level]
+        if out.suffix.lower() in (".mp4", ".m4v"):
+            # MP4 altyazı taşıyıcısı mov_text olmalı; yoksa kopyalama hata verir.
+            base += ["-c:s", "mov_text"]
+        else:
+            base += ["-c:s", "copy"]
         if out.suffix.lower() in (".mp4", ".m4v"):
             base += ["-movflags", "+faststart"]
         base.append(str(out))

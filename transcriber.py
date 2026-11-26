@@ -40,7 +40,6 @@ MODEL_APPROX_MB = {
 SAMPLE_RATE = 16000
 CHUNK_SECONDS = 600.0      # 10 dakika
 OVERLAP_SECONDS = 1.0
-SKIP_AFTER_OVERLAP = 0.5   # yeni dilimde bu kadar erken kelimeler atilir
 
 # Parcalama boyutu kucuk tutulur: baglanti koparsa en fazla bu kadar
 # ilerleme kaybolur, geri kalani `.part` sayesinde devam eder.

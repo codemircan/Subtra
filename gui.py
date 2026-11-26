@@ -641,6 +641,22 @@ class MainWindow(QMainWindow):
         cache_row.addWidget(self.cache_clear_button)
         quality_layout.addLayout(cache_row)
 
+        self.preview_check = QCheckBox(
+            "Videoya işlemeden önce altyazıyı göster (düzeltme imkânı)"
+        )
+        self.preview_check.setChecked(True)
+        self.preview_check.setToolTip(
+            "SRT üretildikten sonra durur, metni/zamanlamayı düzeltmenize izin verir."
+        )
+        quality_layout.addWidget(self.preview_check)
+
+        self.overwrite_check = QCheckBox("Var olan çıktı dosyalarının üzerine yaz")
+        self.overwrite_check.setChecked(True)
+        self.overwrite_check.setToolTip(
+            "Kapalıysa mevcut dosyalar korunur; yeni çıktı _2, _3… ekiyle yazılır."
+        )
+        quality_layout.addWidget(self.overwrite_check)
+
         layout.addWidget(quality_box)
 
         # FFmpeg ------------------------------------------------------------
@@ -790,6 +806,13 @@ class MainWindow(QMainWindow):
         self.cache_check.stateChanged.connect(self._refresh_cache_info)
         self._refresh_cache_info()
 
+        self.preview_check.setChecked(
+            not self._settings.value("skip_preview", False, bool)
+        )
+        self.overwrite_check.setChecked(
+            self._settings.value("overwrite_output", True, bool)
+        )
+
         source_lang = self._settings.value("srt_source_lang", "", str)
         index = self.srt_lang_combo.findData(source_lang)
         if index >= 0:
@@ -827,6 +850,8 @@ class MainWindow(QMainWindow):
         self._settings.setValue("burn_crf", self.crf_spin.value())
         self._settings.setValue("whisper_batch_size", self.batch_spin.value())
         self._settings.setValue("use_transcript_cache", self.cache_check.isChecked())
+        self._settings.setValue("skip_preview", not self.preview_check.isChecked())
+        self._settings.setValue("overwrite_output", self.overwrite_check.isChecked())
         self._settings.setValue("srt_source_lang", self.srt_lang_combo.currentData())
         self._settings.setValue("srt_target_lang", self.srt_target_combo.currentData())
         self._settings.setValue("srt_output_mode", self.srt_output_combo.currentData())
@@ -843,7 +868,30 @@ class MainWindow(QMainWindow):
 
     def _update_model_hint(self) -> None:
         key = self.model_combo.currentData() or "small"
-        self.model_hint.setText(f"CPU'da hız/kalite: {MODEL_HINTS.get(key, '')}")
+        hint = f"CPU'da hız/kalite: {MODEL_HINTS.get(key, '')}"
+
+        # RAM uyarısı: seçim engellenmez ama kullanıcı bilgilendirilir.
+        try:
+            import hardware
+
+            available = hardware.available_ram_mb()
+            need = (
+                hardware.MODEL_RAM_MB.get(key, 400)
+                + hardware.NLLB_RAM_MB
+                + hardware.OVERHEAD_RAM_MB
+            )
+            if available and available < need:
+                hint += (
+                    f"\n⚠ Bu makinede {available} MB boş bellek var, tahmini ihtiyaç "
+                    f"~{need} MB. Daha küçük model önerilir."
+                )
+                self.model_hint.setStyleSheet("color: #b45309;")
+            else:
+                self.model_hint.setStyleSheet("color: #6b7280;")
+        except Exception:
+            self.model_hint.setStyleSheet("color: #6b7280;")
+
+        self.model_hint.setText(hint)
 
     def _update_style_enabled(self, *_args) -> None:
         self.style_box.setEnabled(self._current_mode() == "burn" and not getattr(self, "_busy", False))
@@ -1212,6 +1260,8 @@ class MainWindow(QMainWindow):
             burn_crf=self.crf_spin.value(),
             batch_size=self.batch_spin.value(),
             use_transcript_cache=self.cache_check.isChecked(),
+            skip_preview=not self.preview_check.isChecked(),
+            overwrite=self.overwrite_check.isChecked(),
             source_lang=self.srt_lang_combo.currentData() or "",
         )
 
@@ -1305,6 +1355,7 @@ class MainWindow(QMainWindow):
         self._worker.stage_changed.connect(self.stage_label.setText)
         self._worker.progress_changed.connect(self.progress.setValue)
         self._worker.language_detected.connect(self._on_language)
+        self._worker.preview_requested.connect(self._on_preview_single)
         self._worker.finished_ok.connect(self._on_finished)
         self._worker.failed.connect(self._on_failed)
         self._worker.cancelled.connect(self._on_cancelled)
@@ -1468,6 +1519,7 @@ class MainWindow(QMainWindow):
         self._batch.stage_changed.connect(self.stage_label.setText)
         self._batch.progress_changed.connect(self.progress.setValue)
         self._batch.language_detected.connect(self._on_language)
+        self._batch.preview_requested.connect(self._on_preview_batch)
         self._batch.item_started.connect(self._on_item_started)
         self._batch.item_finished.connect(self._on_item_finished)
         self._batch.item_failed.connect(self._on_item_failed)
@@ -1614,6 +1666,55 @@ class MainWindow(QMainWindow):
         self.detected_label.setText(
             f"Tespit edilen dil: {label} ({code or '?'}) — güven: %{confidence * 100:.1f}"
         )
+
+    # ------------------------------------------------------------------
+    # Altyazı önizlemesi (render öncesi onay)
+    # ------------------------------------------------------------------
+    def _preview_skipped(self) -> bool:
+        """Kullanıcı 'bir daha sorma' dedi mi?"""
+        return self._settings.value("skip_preview", False, bool)
+
+    def _show_preview(self, srt_path: str, summary: str, index: int | None = None) -> tuple[bool, bool]:
+        """Diyaloğu gösterir; (devam, sadece_srt) döndürür."""
+        from PySide6.QtWidgets import QDialog
+
+        from subtitle_preview import SubtitlePreviewDialog
+
+        if self._preview_skipped():
+            return (True, False)
+
+        dialog = SubtitlePreviewDialog(srt_path, summary, self)
+        result = dialog.exec()
+        if dialog.dont_ask_again:
+            self._settings.setValue("skip_preview", True)
+            self._append_log("Bir daha sorma seçildi; sonraki işlerde önizleme atlanacak.")
+        if result != QDialog.DialogCode.Accepted:
+            return (False, False)
+        return (True, dialog.skip_video)
+
+    def _on_preview_single(self, srt_path: str, summary: str) -> None:
+        worker = self._worker
+        if worker is None:
+            return
+        self._append_log(f"Altyazı önizlemesi: {Path(srt_path).name}")
+        proceed, only_srt = self._show_preview(srt_path, summary)
+        if not proceed:
+            self._append_log("Önizlemede vazgeçildi.")
+        elif only_srt:
+            self._append_log("Yalnızca .srt üretilecek.")
+        worker.submit_preview_result(proceed, only_srt)
+
+    def _on_preview_batch(self, index: int, srt_path: str, summary: str) -> None:
+        batch = self._batch
+        if batch is None:
+            return
+        self._append_log(f"[{index + 1}] Altyazı önizlemesi: {Path(srt_path).name}")
+        proceed, only_srt = self._show_preview(srt_path, summary, index)
+        if not proceed:
+            self._append_log(f"[{index + 1}] Önizlemede vazgeçildi.")
+        elif only_srt:
+            self._append_log(f"[{index + 1}] Yalnızca .srt üretilecek.")
+        batch.submit_preview_result(proceed, only_srt)
 
     def _on_finished(self, video: str, srt: str, summary: str) -> None:
         self._last_video = video
