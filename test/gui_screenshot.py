@@ -37,6 +37,22 @@ def main() -> int:
     if sample.exists():
         window._set_glossary(str(sample), announce=False)
 
+    # Kuyruk ornegi: 3 dosya, ikisinde kendi sozlugu (satir basina sozluk)
+    if video:
+        queue_files = [resolved]
+        for index in (1, 2):
+            copy = Path(resolved).with_name(f"_queue_ornek_{index}{Path(resolved).suffix}")
+            try:
+                copy.write_bytes(Path(resolved).read_bytes()[:2048])
+                queue_files.append(str(copy))
+            except OSError:
+                pass
+        window._add_to_queue(queue_files)
+        if sample.exists():
+            rows = list(range(1, window.queue_table.rowCount()))
+            if rows:
+                window._apply_queue_glossary(str(sample), rows)
+
     def capture() -> None:
         names = ["tab_video", "tab_queue", "tab_srt", "tab_settings"]
         for index, name in enumerate(names):
@@ -53,6 +69,16 @@ def main() -> int:
             QApplication.processEvents()
             window.grab().save(str(OUT / "gui_tab_settings_glossary.png"))
             print("saved tab_settings_glossary")
+
+        # Kuyruk sekmesinde sozluk sutunu
+        window.tabs.setCurrentIndex(1)
+        QApplication.processEvents()
+        window.grab().save(str(OUT / "gui_queue_glossary.png"))
+        print("saved queue_glossary")
+
+        # Ornek dosyalari temizle
+        for copy in OUT.glob("_queue_ornek_*"):
+            copy.unlink(missing_ok=True)
         app.quit()
 
     QTimer.singleShot(1200, capture)

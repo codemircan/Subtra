@@ -73,7 +73,7 @@ MODEL_HINTS = {
     "medium": "yüksek kalite, CPU'da yavaş (~1.5 GB)",
 }
 
-QUEUE_COLUMNS = ("Dosya", "Hedef dil", "Durum", "Çıktı")
+QUEUE_COLUMNS = ("Dosya", "Hedef dil", "Sözlük", "Durum", "Çıktı")
 
 
 # --------------------------------------------------------------------------
@@ -443,8 +443,9 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.queue_table.setColumnWidth(1, 110)
-        self.queue_table.setColumnWidth(2, 100)
+        self.queue_table.setColumnWidth(3, 100)
         layout.addWidget(self.queue_table, 1)
 
         # Dosya başına hedef dil: satır seçilip buradan değiştirilir.
@@ -464,6 +465,27 @@ class MainWindow(QMainWindow):
             _make_hint("Her dosya farklı dile çevrilebilir; transkript bir kez çıkarılır."), 1
         )
         layout.addLayout(target_row)
+
+        # Dosya başına terim sözlüğü ---------------------------------------
+        glossary_row = QHBoxLayout()
+        glossary_row.addWidget(QLabel("Seçili satırın sözlüğü:"))
+        self.queue_glossary_button = QPushButton("Sözlük Seç…")
+        self.queue_glossary_button.clicked.connect(self._choose_queue_glossary)
+        glossary_row.addWidget(self.queue_glossary_button)
+        self.queue_glossary_all_button = QPushButton("Tümüne Uygula")
+        self.queue_glossary_all_button.clicked.connect(self._choose_queue_glossary_all)
+        glossary_row.addWidget(self.queue_glossary_all_button)
+        self.queue_glossary_clear_button = QPushButton("Kaldır")
+        self.queue_glossary_clear_button.clicked.connect(self._clear_queue_glossary)
+        glossary_row.addWidget(self.queue_glossary_clear_button)
+        glossary_row.addWidget(
+            _make_hint(
+                "Her video kendi sözlüğünü kullanabilir; boş bırakılırsa "
+                "Ayarlar'daki genel sözlük geçerli."
+            ),
+            1,
+        )
+        layout.addLayout(glossary_row)
 
         self.queue_summary = _make_hint("Kuyruk boş. İş seçenekleri 'Video' sekmesinden alınır.")
         layout.addWidget(self.queue_summary)
@@ -1498,6 +1520,7 @@ class MainWindow(QMainWindow):
         input_srt: str = "",
         target_lang: str | None = None,
         output_mode: str | None = None,
+        glossary_path: str | None = None,
     ) -> JobSettings:
         return JobSettings(
             input_path=input_path,
@@ -1519,7 +1542,7 @@ class MainWindow(QMainWindow):
             skip_preview=not self.preview_check.isChecked(),
             overwrite=self.overwrite_check.isChecked(),
             source_lang=self.srt_lang_combo.currentData() or "",
-            glossary_path=self._glossary_path,
+            glossary_path=self._glossary_path if glossary_path is None else glossary_path,
             audio_stream_index=int(self.audio_track_combo.currentData() or 0),
         )
 
@@ -1654,8 +1677,12 @@ class MainWindow(QMainWindow):
             name_item.setToolTip(path)
             self.queue_table.setItem(row, 0, name_item)
             self.queue_table.setItem(row, 1, self._target_item(default_target))
-            self.queue_table.setItem(row, 2, QTableWidgetItem("Bekliyor"))
-            self.queue_table.setItem(row, 3, QTableWidgetItem("—"))
+            # Bos hucre = "genel sozluk kullanilir". Global sozluk sonradan
+            # degisirse bu satirlar da onu izler; yola baglanmis satir ise
+            # kendi secimini korur.
+            self.queue_table.setItem(row, 2, self._glossary_item(""))
+            self.queue_table.setItem(row, 3, QTableWidgetItem("Bekliyor"))
+            self.queue_table.setItem(row, 4, QTableWidgetItem("—"))
             existing.add((path, default_target))
             added += 1
         self.queue_table.resizeRowsToContents()
@@ -1731,11 +1758,117 @@ class MainWindow(QMainWindow):
             )
         else:
             languages = {self._queue_target(row) for row in range(count)}
-            self.queue_summary.setText(
-                f"{count} dosya sırada ({len(languages)} farklı hedef dil). "
-                "Modeller bir kez yüklenir; aynı video tekrar işlenirse "
+            own = sum(1 for row in range(count) if self._queue_has_own_glossary(row))
+            text = f"{count} dosya sırada ({len(languages)} farklı hedef dil"
+            if own:
+                text += f", {own} dosyaya özel sözlük"
+            text += (
+                "). Modeller bir kez yüklenir; aynı video tekrar işlenirse "
                 "transkript önbellekten alınır."
             )
+            self.queue_summary.setText(text)
+
+    # -- satır başına terim sözlüğü ----------------------------------------
+    @staticmethod
+    def _glossary_item(path: str) -> QTableWidgetItem:
+        """Sözlük hücresi: dosya adı, veri olarak tam yol (boş = genel)."""
+        name = Path(path).name if path else "—"
+        item = QTableWidgetItem(name)
+        item.setData(Qt.UserRole, path or "")
+        item.setToolTip(
+            (f"Terim sözlüğü: {path}" if path else "Genel sözlük (Ayarlar) kullanılır")
+            + "\nDeğiştirmek için satırı seçip aşağıdaki 'Sözlük Seç…' düğmesini kullanın."
+        )
+        return item
+
+    def _queue_glossary(self, row: int) -> str:
+        """Satırın etkin sözlüğü: kendi seçimi varsa o, yoksa genel sözlük."""
+        item = self.queue_table.item(row, 2)
+        if item is not None:
+            stored = item.data(Qt.UserRole)
+            if stored:
+                return str(stored)
+        return self._glossary_path
+
+    def _queue_has_own_glossary(self, row: int) -> bool:
+        """Satıra açıkça sözlük atanmış mı (genel sözlükten bağımsız)?"""
+        item = self.queue_table.item(row, 2)
+        return bool(item is not None and item.data(Qt.UserRole))
+
+    def _selected_queue_rows(self) -> list[int]:
+        model = self.queue_table.selectionModel()
+        return [index.row() for index in model.selectedRows()] if model else []
+
+    def _apply_queue_glossary(self, path: str, rows: list[int] | None = None) -> int:
+        """Sözlüğü satırlara atar; dosya geçersizse hiçbir satır değişmez."""
+        path = (path or "").strip()
+        rows = self._selected_queue_rows() if rows is None else rows
+        if not rows:
+            QMessageBox.information(
+                self, "Seçim yok", "Sözlük atamak için önce satır(lar) seçin."
+            )
+            return 0
+        if path:
+            try:
+                loaded = glossary_mod.load_glossary(path)
+            except glossary_mod.GlossaryError as exc:
+                QMessageBox.warning(self, "Sözlük okunamadı", str(exc))
+                self._append_log(f"Kuyruk sözlüğü reddedildi: {exc}")
+                return 0
+            self._append_log(
+                f"{len(rows)} satıra sözlük atandı: {Path(path).name} ({len(loaded)} terim)"
+            )
+        else:
+            self._append_log(f"{len(rows)} satırın sözlüğü genel sözlüğe döndürüldü.")
+
+        for row in rows:
+            self.queue_table.setItem(row, 2, self._glossary_item(path))
+        self._update_queue_summary()
+        return len(rows)
+
+    def _choose_queue_glossary(self) -> None:
+        rows = self._selected_queue_rows()
+        if not rows:
+            QMessageBox.information(
+                self, "Seçim yok", "Sözlük atamak için önce satır(lar) seçin."
+            )
+            return
+        current = self._queue_glossary(rows[0])
+        start = str(Path(current).parent) if current else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Kuyruk satırı için terim sözlüğü",
+            start,
+            "Sözlük (*.tsv *.txt *.csv);;Tüm dosyalar (*)",
+        )
+        if path:
+            self._apply_queue_glossary(path, rows)
+
+    def _choose_queue_glossary_all(self) -> None:
+        if self.queue_table.rowCount() == 0:
+            QMessageBox.information(self, "Kuyruk boş", "Önce kuyruğa video ekleyin.")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Tüm kuyruk için terim sözlüğü",
+            "",
+            "Sözlük (*.tsv *.txt *.csv);;Tüm dosyalar (*)",
+        )
+        if path:
+            self._apply_queue_glossary_all(path)
+
+    def _apply_queue_glossary_all(self, path: str) -> int:
+        """Sözlüğü kuyruktaki tüm satırlara atar."""
+        return self._apply_queue_glossary(path, list(range(self.queue_table.rowCount())))
+
+    def _clear_queue_glossary(self) -> None:
+        rows = self._selected_queue_rows()
+        if not rows:
+            QMessageBox.information(
+                self, "Seçim yok", "Sözlüğü kaldırmak için önce satır(lar) seçin."
+            )
+            return
+        self._apply_queue_glossary("", rows)
 
     def _queue_paths(self) -> list[str]:
         paths: list[str] = []
@@ -1746,14 +1879,20 @@ class MainWindow(QMainWindow):
         return paths
 
     def _queue_jobs(self) -> list:
-        """Kuyruk satırlarından iş listesi (her satır kendi hedef diliyle)."""
+        """Kuyruk satırlarından iş listesi (hedef dil + sözlük satır başına)."""
         jobs = []
         for row in range(self.queue_table.rowCount()):
             item = self.queue_table.item(row, 0)
             if item is None:
                 continue
             path = item.data(Qt.UserRole)
-            jobs.append(self._base_settings(input_path=path, target_lang=self._queue_target(row)))
+            jobs.append(
+                self._base_settings(
+                    input_path=path,
+                    target_lang=self._queue_target(row),
+                    glossary_path=self._queue_glossary(row),
+                )
+            )
         return jobs
 
     def _start_queue(self) -> None:
@@ -1797,9 +1936,9 @@ class MainWindow(QMainWindow):
                 status_item.setForeground(QColor("#b91c1c"))
             elif status == "İşleniyor":
                 status_item.setForeground(QColor("#2563eb"))
-            self.queue_table.setItem(row, 2, status_item)
+            self.queue_table.setItem(row, 3, status_item)
             if output != "—":
-                self.queue_table.setItem(row, 3, QTableWidgetItem(output))
+                self.queue_table.setItem(row, 4, QTableWidgetItem(output))
 
     def _on_item_started(self, index: int, path: str) -> None:
         self._set_queue_status(index, "İşleniyor")

@@ -236,15 +236,19 @@ def check_memory(
     with_translation: bool = True,
     skip_whisper: bool = False,
     skip_nllb: bool = False,
+    available_mb: int | None = None,
 ) -> tuple[bool, str]:
     """Secilen model icin yeterli RAM var mi?
 
     skip_whisper/skip_nllb: model zaten bellekte (kuyrukta yeniden kullanim);
     o modelin payi tekrar sayilmaz.
 
+    available_mb: bos RAM'i disaridan vermek icin (testler). None ise
+    sistemden olculur.
+
     (yeterli_mi, aciklama) dondurur. RAM olculemiyorsa iyimser davranir.
     """
-    available = available_ram_mb()
+    available = available_ram_mb() if available_mb is None else int(available_mb)
     if available <= 0:
         return True, "Bellek durumu okunamadı; devam ediliyor."
 

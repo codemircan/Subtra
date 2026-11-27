@@ -207,6 +207,30 @@ user to run when "the app does not work" — the report pinpoints the cause.
 
 ---
 
+## What's new in 2.7
+
+**Per-file glossary in the queue**
+- The queue table gained a **Sözlük** (glossary) column. Each row can use its
+  own term list — a ten-video queue no longer has to share one glossary.
+- An empty cell means "use the general glossary from Settings", so changing the
+  general glossary still updates every row that was never assigned one, while
+  rows with their own file keep it.
+- Select rows → **Sözlük Seç…**, **Tümüne Uygula**, or **Kaldır**. Invalid or
+  missing glossary files are rejected with a message and the row is left
+  unchanged. The summary line reports how many rows have their own glossary.
+
+| Row | Glossary cell | Effective glossary |
+|---|---|---|
+| 1 | `—` | Settings → general |
+| 2 | `hukuk.tsv` | `hukuk.tsv` |
+
+Verified end to end: the same video copied twice, with `ALTYAZI_A` and
+`ALTYAZI_B` assigned per row, produced `… ALTYAZI_A …` and `… ALTYAZI_B …` in
+its two outputs, with no cross-contamination (the second job reused the cached
+transcript).
+
+---
+
 ## Features
 
 - Automatic language detection (Whisper) with a confidence readout
@@ -367,6 +391,10 @@ source language filled in — no transcription needed.
 Drag in several videos → **Start queue**. Status and output name appear per
 file; on error the queue continues and prints a summary at the end.
 
+Per row you can set the **target language** and the **glossary**; select rows
+and use the buttons underneath the table. An empty glossary cell means the
+general glossary from Settings is used.
+
 ### Translate SRT tab
 Drop an existing `.srt`. Optionally pick a video (for burn-in or soft
 subtitles). If **source language** is left on auto, it is guessed from the text.
@@ -435,6 +463,7 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 py test/test_subtitles.py        # subtitle engine
 py test/test_transcriber_units.py# pseudo-words when word timestamps are off
 py test/test_audio_select.py     # audio track listing/extraction (needs FFmpeg)
+py test/test_queue_glossary.py   # per-file glossary in the queue (GUI + real run)
 py test/test_glossary.py         # glossary parsing, protect/restore, Turkish case
 py test/test_glossary_pipeline.py# glossary through the translation flow (fake model)
 py test/test_glossary_ui.py      # glossary picker in Settings

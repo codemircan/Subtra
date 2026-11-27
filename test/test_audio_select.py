@@ -174,9 +174,22 @@ print("\n8) Uctan uca: konusma 2. kanalda (Whisper)")
 from transcriber import cached_whisper_models  # noqa: E402
 import app_paths  # noqa: E402
 from worker import JobRunner, JobSettings, ModelCache  # noqa: E402
-from errors import NoSpeechError  # noqa: E402
+from errors import NoSpeechError, SubtraError  # noqa: E402
 
 models_dir = app_paths.resolve_models_dir()
+
+
+def _skip_on_memory(callable_, label: str):
+    """Bellek korumasi devreye girerse testi kirmizi yapma: SKIP et."""
+    try:
+        return callable_()
+    except SubtraError as exc:
+        if "Bellek yetersiz" in str(exc):
+            print(f"  SKIP: bos RAM yetersiz — {label} (bellek korumasi)")
+            return None
+        raise
+
+
 if "tiny" not in cached_whisper_models(models_dir):
     print("  SKIP: whisper tiny onbellekte yok (model indirilmez).")
 else:
@@ -226,38 +239,49 @@ else:
         check("kanal 0 (ton) konusma bulamadi", False, "beklenen istisna gelmedi")
     except NoSpeechError:
         check("kanal 0 (ton) konusma bulamadi", True)
+    except SubtraError as exc:
+        if "Bellek yetersiz" not in str(exc):
+            raise
+        print("  SKIP: bos RAM yetersiz (bellek korumasi) — uctan uca bolum atlandi.")
+        _memory_skip = True
+    else:
+        _memory_skip = False
 
-    # Kanal 1 = konusma: metin cikmali
-    video_out, srt_out, summary = make_runner(1).run()
-    check("kanal 1 video uretmedi (srt modu)", video_out == "", video_out)
-    text = Path(srt_out).read_text(encoding="utf-8")
-    check("kanal 1 metin uretti", len(text.strip()) > 40, text[:80].replace("\n", " | "))
-    check("log kanal secimini yazdi", any("Ses kanalı: #2" in line for line in logs),
-          next((l for l in logs if "Ses kanal" in l), "(yok)"))
+    def _run_whisper_sections() -> None:
+        # Kanal 1 = konusma: metin cikmali
+        video_out, srt_out, summary = make_runner(1).run()
+        check("kanal 1 video uretmedi (srt modu)", video_out == "", video_out)
+        text = Path(srt_out).read_text(encoding="utf-8")
+        check("kanal 1 metin uretti", len(text.strip()) > 40, text[:80].replace("\n", " | "))
+        check("log kanal secimini yazdi", any("Ses kanalı: #2" in line for line in logs),
+              next((l for l in logs if "Ses kanal" in l), "(yok)"))
 
-    print("\n9) Regresyon: kelime damgasi KAPALI (word_timestamps=False)")
-    settings = JobSettings(
-        input_path=str(karisik),
-        model_size="tiny",
-        target_lang="tr",
-        output_mode="srt",
-        models_dir=str(models_dir),
-        skip_preview=True,
-        use_transcript_cache=False,
-        word_timestamps=False,
-        audio_stream_index=1,
-    )
-    try:
-        _video, srt_kapali, _summary = JobRunner(
-            settings, ModelCache(models_dir), worker_mod.JobHooks(log=logs.append)
-        ).run()
-        text_kapali = Path(srt_kapali).read_text(encoding="utf-8")
-        check("kelime damgasi kapali da metin uretir", len(text_kapali.strip()) > 40,
-              text_kapali[:70].replace("\n", " | "))
-        check("SRT bicimi gecerli", "-->" in text_kapali)
-    except NoSpeechError as exc:
-        check("kelime damgasi kapali da metin uretir", False,
-              f"NoSpeechError: {str(exc).splitlines()[0]}")
+        print("\n9) Regresyon: kelime damgasi KAPALI (word_timestamps=False)")
+        settings = JobSettings(
+            input_path=str(karisik),
+            model_size="tiny",
+            target_lang="tr",
+            output_mode="srt",
+            models_dir=str(models_dir),
+            skip_preview=True,
+            use_transcript_cache=False,
+            word_timestamps=False,
+            audio_stream_index=1,
+        )
+        try:
+            _video, srt_kapali, _summary = JobRunner(
+                settings, ModelCache(models_dir), worker_mod.JobHooks(log=logs.append)
+            ).run()
+            text_kapali = Path(srt_kapali).read_text(encoding="utf-8")
+            check("kelime damgasi kapali da metin uretir", len(text_kapali.strip()) > 40,
+                  text_kapali[:70].replace("\n", " | "))
+            check("SRT bicimi gecerli", "-->" in text_kapali)
+        except NoSpeechError as exc:
+            check("kelime damgasi kapali da metin uretir", False,
+                  f"NoSpeechError: {str(exc).splitlines()[0]}")
+
+    if not _memory_skip:
+        _skip_on_memory(_run_whisper_sections, "Whisper bolumleri")
 
 failed = [label for label, ok, _ in checks if not ok]
 print()

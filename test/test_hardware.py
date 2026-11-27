@@ -81,28 +81,59 @@ for node in ast.walk(ast.parse(source)):
 check("ctypes.wintypes referansı yok", not has_wintypes)
 
 print("\n" + "=" * 68)
-print("3) RAM kontrolü (check_memory)")
+print("3) RAM kontrolü (check_memory) — mantık, sabit değerlerle")
 print("=" * 68)
 import hardware
 
 available = hardware.available_ram_mb()
-print(f"   boş RAM: {available} MB")
+print(f"   bu makinede boş RAM: {available} MB")
 check("boş RAM okunabildi", available > 0, f"{available} MB")
 
-ok_small, msg_small = hardware.check_memory("tiny", with_translation=True)
-check("tiny kabul edilir", ok_small, msg_small.splitlines()[0])
-
-ok_medium, msg_medium = hardware.check_memory("medium", with_translation=True)
-print(f"   medium: {msg_medium.splitlines()[0]}")
-# Bu makinede 6 GB: medium ya reddedilmeli ya da yeterli olmalı (tutarlı)
+need_tiny = hardware.MODEL_RAM_MB["tiny"] + hardware.NLLB_RAM_MB + hardware.OVERHEAD_RAM_MB
 need_medium = hardware.MODEL_RAM_MB["medium"] + hardware.NLLB_RAM_MB + hardware.OVERHEAD_RAM_MB
-expected = available >= need_medium
-check("medium kararı tutarlı", ok_medium == expected, f"beklenen={expected}")
+print(f"   hesap: tiny={need_tiny} MB, medium={need_medium} MB")
 
-check(
-    "reddedilince mesaj açıklayıcı",
-    ok_medium or ("Bellek yetersiz" in msg_medium and "tiny" in msg_medium),
+# Enjekte edilen boş RAM ile kararlar deterministik olur; makinenin
+# o anki yükü testi kırmaz.
+ok_rich, msg_rich = hardware.check_memory("tiny", True, available_mb=need_tiny + 500)
+check("bol RAM: tiny kabul", ok_rich, msg_rich.splitlines()[0])
+
+ok_poor, msg_poor = hardware.check_memory("tiny", True, available_mb=need_tiny - 500)
+check("az RAM: tiny reddedilir", not ok_poor, msg_poor.splitlines()[0])
+check("az RAM: mesaj 'Bellek yetersiz'", "Bellek yetersiz" in msg_poor)
+check("az RAM: eksik miktar yazılı", "eksik" in msg_poor.lower())
+check("az RAM: öneri var", "kapatın" in msg_poor)
+
+# Tam sınırda kabul (>=)
+ok_edge, _ = hardware.check_memory("tiny", True, available_mb=need_tiny)
+check("tam sınırda kabul", ok_edge)
+
+# medium daha çok ister
+ok_med_poor, msg_med = hardware.check_memory("medium", True, available_mb=need_tiny + 200)
+check("medium yetersizse reddedilir", not ok_med_poor, msg_med.splitlines()[0])
+
+# Çeviri kapalı: NLLB payı sayılmaz
+need_medium_notrans = hardware.MODEL_RAM_MB["medium"] + hardware.OVERHEAD_RAM_MB
+ok_notrans, msg_notrans = hardware.check_memory(
+    "medium", with_translation=False, available_mb=need_medium_notrans + 200
 )
+check("çeviri kapalı: medium kabul", ok_notrans, msg_notrans.splitlines()[0])
+check(
+    "çeviri kapalı: NLLB payı istenmez",
+    str(hardware.NLLB_RAM_MB) not in msg_notrans,
+    msg_notrans.splitlines()[0],
+)
+
+# Kuyrukta zaten yüklü modeller tekrar sayılmaz: yalnızca OVERHEAD kalır
+ok_skip, msg_skip = hardware.check_memory(
+    "tiny", True, skip_whisper=True, skip_nllb=True, available_mb=hardware.OVERHEAD_RAM_MB + 100
+)
+check("modeller bellekteyse kabul", ok_skip, msg_skip.splitlines()[0])
+check("modeller bellekteyse mesaj belirtir", "bellekte" in msg_skip.lower())
+
+# RAM okunamazsa iyimser davranır
+ok_unknown, msg_unknown = hardware.check_memory("medium", True, available_mb=0)
+check("RAM okunamazsa devam eder", ok_unknown, msg_unknown.splitlines()[0])
 
 print("\n" + "=" * 68)
 print("4) Model başına RAM tahminleri artan sırada")
@@ -121,6 +152,12 @@ if available >= need_medium:
 else:
     check("yetersiz RAM'de uyarı var", bool(warning), warning.splitlines()[0][:70])
     check("uyarı medium'a özgü", "medium" in warning.lower())
+# Uyarı mutlaka sistemin gerçek durumuyla tutarlı olmalı (iki yönde de).
+check(
+    "uyarı gerçek RAM ile tutarlı",
+    bool(warning) == (available < need_medium),
+    f"boş={available} gerekli={need_medium}",
+)
 
 failed = [label for label, ok in checks if not ok]
 print("\n" + "=" * 68)

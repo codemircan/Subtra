@@ -73,8 +73,8 @@ def main() -> int:
         QTimer.singleShot(200, step_srt)
 
     def step_srt() -> None:
-        # Kuyruk durumunu kontrol et (sütun 2 = Durum, sütun 1 artık hedef dil)
-        status = window.queue_table.item(0, 2).text()
+        # Sütunlar: 0 Dosya, 1 Hedef dil, 2 Sözlük, 3 Durum, 4 Çıktı
+        status = window.queue_table.item(0, 3).text()
         print("Kuyruk durumu:", status)
         assert status == "Tamamlandı", f"beklenmeyen durum: {status}"
 

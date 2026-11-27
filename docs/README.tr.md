@@ -203,6 +203,29 @@ diyen kullanıcıya çalıştırtılacak komut budur — rapor sebebi doğrudan 
 
 ---
 
+## 2.7'de neler yeni
+
+**Kuyrukta dosya başına terim sözlüğü**
+- Kuyruk tablosuna **Sözlük** sütunu eklendi. Her satır kendi terim listesini
+  kullanabilir — on videoluk kuyruk artık tek sözlüğe mahkûm değil.
+- Boş hücre "Ayarlar'daki genel sözlüğü kullan" demektir; böylece genel sözlük
+  değişince hiç atanmamış satırlar onu izler, kendi dosyası olan satırlar ise
+  kendi seçimini korur.
+- Satır(lar)ı seçip **Sözlük Seç…**, **Tümüne Uygula** veya **Kaldır**
+  kullanılır. Bozuk/olmayan sözlük dosyası uyarıyla reddedilir, satır olduğu
+  gibi kalır. Özet satırı kaç dosyanın kendi sözlüğü olduğunu yazar.
+
+| Satır | Sözlük hücresi | Etkin sözlük |
+|---|---|---|
+| 1 | `—` | Ayarlar → genel |
+| 2 | `hukuk.tsv` | `hukuk.tsv` |
+
+Uçtan uca doğrulandı: aynı videonun iki kopyasına satır başına `ALTYAZI_A` ve
+`ALTYAZI_B` atandı; iki çıktı sırasıyla `… ALTYAZI_A …` ve `… ALTYAZI_B …`
+üretti, çapraz kullanım olmadı (ikinci iş transkripti önbellekten aldı).
+
+---
+
 ## Özellikler
 
 - Otomatik dil tespiti (Whisper) + güven oranı göstergesi
@@ -361,6 +384,10 @@ taşır — transkripsiyon gerekmez.
 Birden fazla video sürükleyin → **Kuyruğu Başlat**. Her dosya için durum ve
 çıktı adı tabloda görünür; hatada kuyruk devam eder ve sonda özet verilir.
 
+Satır başına **hedef dil** ve **terim sözlüğü** ayarlanır: satırları seçip
+tablonun altındaki düğmeleri kullanın. Sözlük hücresi boşsa Ayarlar'daki genel
+sözlük geçerlidir.
+
 ### SRT Çevir sekmesi
 Var olan `.srt` dosyasını bırakın. İsterseniz bir video da seçin (burn-in veya
 yumuşak altyazı için). **Kaynak dil** seçilmezse metinden tahmin edilir.
@@ -430,6 +457,7 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 py test/test_subtitles.py         # altyazı motoru
 py test/test_transcriber_units.py # kelime damgası kapalıyken sözde kelimeler
 py test/test_audio_select.py      # ses kanalı listeleme/çıkarma (FFmpeg gerekir)
+py test/test_queue_glossary.py    # kuyrukta dosya başına sözlük (GUI + gerçek iş)
 py test/test_frozen_exe.py        # run_all'da YOK: exe'yi derler, içinden transkripsiyon yapar
 py test/test_glossary.py          # sözlük ayrıştırma, koruma/geri yazma, Türkçe harf
 py test/test_glossary_pipeline.py # sözlük + çeviri akışı (sahte model)

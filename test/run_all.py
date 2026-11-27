@@ -32,6 +32,7 @@ TESTS = [
     ("Altyazı birim testleri", ["test/test_subtitles.py"], False),
     ("Transcriber birimleri", ["test/test_transcriber_units.py"], False),
     ("Ses kanalı seçimi", ["test/test_audio_select.py"], False),
+    ("Kuyruk: dosya başına sözlük", ["test/test_queue_glossary.py"], False),
     ("Donanım / bellek", ["test/test_hardware.py"], False),
     ("Çoklu ses kanalı", ["test/test_audio_tracks.py"], False),
     ("Terim sözlüğü (birim)", ["test/test_glossary.py"], False),

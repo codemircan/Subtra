@@ -57,7 +57,8 @@ def main() -> int:
     print("=" * 70)
     print("1) Kuyruk tablosu yapısı")
     print("=" * 70)
-    check("4 sütun (Dosya / Hedef dil / Durum / Çıktı)", window.queue_table.columnCount() == 4)
+    check("5 sütun (Dosya / Hedef dil / Sözlük / Durum / Çıktı)", window.queue_table.columnCount() == 5,
+          str(window.queue_table.columnCount()))
 
     print("\n" + "=" * 70)
     print("2) Aynı video 3 kez, 3 farklı dil")
@@ -136,9 +137,9 @@ def main() -> int:
     def finish():
         outputs = []
         for row in range(window.queue_table.rowCount()):
-            item = window.queue_table.item(row, 3)
+            item = window.queue_table.item(row, 4)
             outputs.append(item.text() if item else "?")
-        statuses = [window.queue_table.item(row, 2).text() for row in range(3)]
+        statuses = [window.queue_table.item(row, 3).text() for row in range(3)]
         print(f"   durumlar: {statuses}")
         print(f"   çıktılar: {outputs}")
         check("3 iş de tamamlandı", result.get("ok") == 3, str(result))

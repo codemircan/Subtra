@@ -56,6 +56,7 @@ for name in (
     "test/test_audio_select.py",
     "test/test_transcriber_units.py",
     "test/test_frozen_exe.py",
+    "test/test_queue_glossary.py",
 ):
     check(f"EN belgeli: {name}", name in EN)
     check(f"TR belgeli: {name}", name in TR)
