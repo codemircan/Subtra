@@ -55,6 +55,7 @@ for name in (
     "test/test_icon.py",
     "test/test_audio_select.py",
     "test/test_transcriber_units.py",
+    "test/test_frozen_exe.py",
 ):
     check(f"EN belgeli: {name}", name in EN)
     check(f"TR belgeli: {name}", name in TR)
@@ -69,7 +70,12 @@ import version  # noqa: E402
 
 major_minor = ".".join(version.__version__.split(".")[:2])
 check("EN 'What's new' guncel", f"## What's new in {major_minor}" in EN, major_minor)
-check("TR 'neler yeni' guncel", f"## {major_minor}'te neler yeni" in TR, major_minor)
+# Turkce ek ses uyumuna gore degisir (2.5'te, 2.6'da): yalnizca basligi ara.
+check(
+    "TR 'neler yeni' guncel",
+    f"## {major_minor}'" in TR and "neler yeni" in TR,
+    major_minor,
+)
 check("EN sozluk bicimi", "### Glossary file format" in EN)
 check("TR sozluk bicimi", "### Terim sözlüğü dosyası" in TR)
 check("EN kapsam disi", "### Not included" in EN)

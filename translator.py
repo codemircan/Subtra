@@ -76,10 +76,18 @@ def check_ctranslate2_runtime(timeout: float = 60.0) -> str | None:
         "print('CT2_RUNTIME_OK')\n"
     )
 
+    # PyInstaller ile paketlenmis uygulamada sys.executable = Subtra.exe.
+    # `-c` kabul etmez; exe GUI'yi acar ve zaman asimina kadar beklerdi
+    # (donmus uygulamada her is "motor calismiyor" ile reddediliyordu).
+    # Bu yuzden exe'ye ozel bir prob bayragi kullaniyoruz; cokme izolasyonu
+    # korunur cunku yine ayri bir surectir.
+    frozen = bool(getattr(sys, "frozen", False))
+    command = [sys.executable, "--ct2-probe"] if frozen else [sys.executable, "-c", script]
+
     creationflags = 0x08000000 if os.name == "nt" else 0
     try:
         result = subprocess.run(
-            [sys.executable, "-c", script],
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
@@ -96,7 +104,11 @@ def check_ctranslate2_runtime(timeout: float = 60.0) -> str | None:
     except (OSError, subprocess.SubprocessError) as exc:
         return f"Çeviri motoru (CTranslate2) kontrol edilemedi.\n{exc}"
 
-    if result.returncode == 0 and "CT2_RUNTIME_OK" in (result.stdout or ""):
+    # Donmus modda child'in stdout'u yoktur (console=False): cikis kodu esas.
+    ok = result.returncode == 0 and (
+        frozen or "CT2_RUNTIME_OK" in (result.stdout or "")
+    )
+    if ok:
         return None
 
     code = result.returncode

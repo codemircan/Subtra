@@ -162,6 +162,47 @@ git checkout main            # kararlı sürüm
 
 ---
 
+## 2.6'da neler yeni
+
+**Paketlenmiş exe artık gerçekten çalışıyor — üç sessiz bozukluk düzeltildi**
+
+Hiçbiri kaynaktan çalıştırırken görünmüyordu; bu yüzden exe uçtan uca
+doğrulanana kadar fark edilmedi:
+
+1. **Exe hiç transkripsiyon yapamıyordu.** faster-whisper'ın VAD modeli
+   (`silero_vad_v6.onnx`) pakete girmiyordu; her transkripsiyon
+   `ONNXRuntimeError: NO_SUCHFILE` ile düşüyordu. `Subtra.spec` artık
+   `faster_whisper` veri dosyalarını topluyor.
+2. **Motor kontrolü exe'de 60 sn asılıp başarısız oluyordu.** CTranslate2 ön
+   kontrolü ayrı süreçte çalışır; donmuş derlemede `sys.executable` =
+   `Subtra.exe` olduğu için `-c` kabul edilmiyor, GUI açılıyor ve zaman aşımı
+   bekleniyordu. Yani paketlenmiş uygulamada **hiçbir iş başlatılamıyordu**.
+   Prob artık kendi `--ct2-probe` bayrağını kullanıyor (yine ayrı süreç, çökme
+   izolasyonu korunuyor).
+3. Pencere simgesi pakete kopyalanmıyordu.
+
+**Yeni destek girişleri**
+
+```
+Subtra.exe --self-check           # modüller, DLL'ler, simge, veri klasörü, modeller
+Subtra.exe --smoke-test VIDEO [DIL] [MODEL]
+                                  # gerçek Whisper + NLLB + FFmpeg, SRT yazar
+```
+
+İkisi de raporu `%LOCALAPPDATA%\Subtra\` altına yazar (`selfcheck.txt`,
+`smoke.txt`) çünkü pencereli exe'de konsol yoktur. "Uygulama çalışmıyor"
+diyen kullanıcıya çalıştırtılacak komut budur — rapor sebebi doğrudan söyler.
+
+**Derleme doğrulaması artık derlemenin parçası**
+
+- `test/test_frozen_exe.py` exe'yi derler, `--self-check` ve gerçek
+  `--smoke-test` (fixture videodan 5 satır Türkçe) çalıştırır.
+- `build.ps1` paketlemeden sonra `--self-check` ve (varsayılan olarak) tam
+  frozen testini çalıştırır; `-SkipTests` verilmedikçe bu sınıf hata sessizce
+  yayınlanamaz.
+
+---
+
 ## Özellikler
 
 - Otomatik dil tespiti (Whisper) + güven oranı göstergesi
@@ -389,6 +430,7 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 py test/test_subtitles.py         # altyazı motoru
 py test/test_transcriber_units.py # kelime damgası kapalıyken sözde kelimeler
 py test/test_audio_select.py      # ses kanalı listeleme/çıkarma (FFmpeg gerekir)
+py test/test_frozen_exe.py        # run_all'da YOK: exe'yi derler, içinden transkripsiyon yapar
 py test/test_glossary.py          # sözlük ayrıştırma, koruma/geri yazma, Türkçe harf
 py test/test_glossary_pipeline.py # sözlük + çeviri akışı (sahte model)
 py test/test_glossary_ui.py       # Ayarlar'daki sözlük seçimi
@@ -503,7 +545,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 Bu betik: bağımlılıkları kurar, testleri çalıştırır, PyInstaller ile paketler,
-proje içindeki FFmpeg'i `dist` klasörüne kopyalar ve
+proje içindeki FFmpeg'i `dist` klasörüne kopyalar, **paketi doğrular** ve
 `Subtra-portable.zip` üretir.
 
 Yalnızca paketleme:
@@ -512,20 +554,30 @@ Yalnızca paketleme:
 py -m PyInstaller Subtra.spec --noconfirm --clean
 ```
 
+**Derledikten sonra mutlaka doğrulayın** — açılan exe, çalışan exe demek değil:
+
+```powershell
+dist\Subtra\Subtra.exe --self-check        # rapor: %LOCALAPPDATA%\Subtra\selfcheck.txt
+py test/test_frozen_exe.py --no-build      # exe üzerinden gerçek transkripsiyon (~1 dk)
+```
+
 Sonuç:
 
 ```
 dist\Subtra\
     Subtra.exe
+    assets\app.ico             ← pencere simgesi
     ffmpeg\bin\ffmpeg.exe      ← PATH gerekmez
     ffmpeg\bin\ffprobe.exe
-    _internal\...
+    _internal\
+        faster_whisper\assets\silero_vad_v6.onnx   ← VAD için zorunlu
 ```
 
 - **Klasör modu** kullanılır (`--onefile` değil): açılış hızlı, modeller kalıcı.
 - FFmpeg'i pakete koymak istemiyorsanız klasörü silin; uygulama ilk açılışta
   indirir.
 - Antivirüs yanlış pozitif verirse klasörü istisnaya ekleyin.
+- FFmpeg dahil açılmış boyut **~347 MB**; zip kabaca yarısı.
 
 ---
 
@@ -548,6 +600,7 @@ dist\Subtra\
 | Sözlük terimi uygulanmadı | Terimin kaynak yazımını ve varsa `en>tr` sütununu kontrol edin; logda eşleşen/kaybolan terim sayısı yazar |
 | "Bu altyazı akışı görüntü tabanlı" | PGS/VobSub metne çevrilemez — metin tabanlı bir akış veya harici `.srt` kullanın |
 | Çok sesli dosyada yanlış dil bulundu | Video sekmesindeki **Ses kanalı** listesinden doğru kanalı seçin; varsayılan ilk kanaldır |
+| **Paketlenmiş exe açılıyor ama hiçbir iş çalışmıyor** | `Subtra.exe --self-check` çalıştırın; `%LOCALAPPDATA%\Subtra\selfcheck.txt` sebebi yazar |
 | CI eski etikette düşüyor | Yalnızca `HEAD` üzerindeki tam etiket karşılaştırılır; sürüm yükseltmesi etiket atılana kadar güvenlidir |
 
 Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,

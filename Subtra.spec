@@ -12,10 +12,17 @@ Notlar:
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files
+
 BLOCK_CIPHER = None
 PROJECT = Path(SPECPATH)
 
 datas = []
+
+# faster-whisper VAD modeli (silero_vad*.onnx) paket icinde veri dosyasidir.
+# Gomulmezse exe acilir ama HER transkripsiyon "NO_SUCHFILE: silero_vad" ile
+# duser (paketlenmis surumde fark edilmemisti).
+datas += collect_data_files("faster_whisper")
 
 # Simge dosyasi (assets/) exe'nin yanina kopyalanir: pencere simgesi ve
 # PyInstaller'in exe ikonu ayni dosyayi kullanir.

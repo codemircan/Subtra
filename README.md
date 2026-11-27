@@ -167,6 +167,46 @@ git checkout main            # stable release
 
 ---
 
+## What's new in 2.6
+
+**The packaged exe now actually works — three silent breakages fixed**
+
+None of this was visible from running the source, which is why it went out
+unnoticed until a build was verified end to end:
+
+1. **The exe could not transcribe anything.** faster-whisper's VAD model
+   (`silero_vad_v6.onnx`) was not bundled, so every transcription died with
+   `ONNXRuntimeError: NO_SUCHFILE`. `Subtra.spec` now collects
+   `faster_whisper` data files.
+2. **The engine check hung for 60 s in the exe and then failed.** The
+   CTranslate2 preflight runs in a child process, and in a frozen build
+   `sys.executable` is `Subtra.exe` — which does not accept `-c`, so it opened
+   the GUI and waited for the timeout. That meant **no job could start** in the
+   packaged app. The probe now uses a dedicated `--ct2-probe` flag (still a
+   separate process, so a crash is still contained).
+3. The window icon was not copied into the package.
+
+**New support entry points**
+
+```
+Subtra.exe --self-check           # modules, DLLs, icon, data folder, models
+Subtra.exe --smoke-test VIDEO [LANG] [MODEL]
+                                  # real Whisper + NLLB + FFmpeg, writes an SRT
+```
+
+Both write a report under `%LOCALAPPDATA%\Subtra\` (`selfcheck.txt`,
+`smoke.txt`) because the windowed exe has no console. They are what to ask a
+user to run when "the app does not work" — the report pinpoints the cause.
+
+**Build verification is now part of the build**
+
+- `test/test_frozen_exe.py` builds the exe, then runs `--self-check` and a real
+  `--smoke-test` (5 cues of Turkish from the fixture video).
+- `build.ps1` runs `--self-check` after packaging and the full frozen test
+  unless `-SkipTests` is given, so this class of bug cannot ship silently again.
+
+---
+
 ## Features
 
 - Automatic language detection (Whisper) with a confidence readout
@@ -400,6 +440,7 @@ py test/test_glossary_pipeline.py# glossary through the translation flow (fake m
 py test/test_glossary_ui.py      # glossary picker in Settings
 py test/test_subtitle_import.py  # embedded stream listing/extraction (needs FFmpeg)
 py test/test_packaging.py        # pyproject + CI workflow consistency
+py test/test_frozen_exe.py       # NOT in run_all: builds the exe and transcribes through it
 py test/test_ci_workflow.py      # workflow YAML schema + runs its steps locally
 py test/test_model_guard.py      # SUBTRA_NO_DOWNLOAD gives a clean error
 py test/test_icon.py             # assets/app.ico valid + wired up
@@ -511,12 +552,21 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 The script installs dependencies, runs the tests, packages with PyInstaller,
-copies the local FFmpeg into `dist`, and produces `Subtra-portable.zip`.
+copies the local FFmpeg into `dist`, verifies the package, and produces
+`Subtra-portable.zip`.
 
 Packaging only:
 
 ```powershell
 py -m PyInstaller Subtra.spec --noconfirm --clean
+```
+
+**Always verify the package afterwards** — a build that starts is not a build
+that works:
+
+```powershell
+dist\Subtra\Subtra.exe --self-check        # report: %LOCALAPPDATA%\Subtra\selfcheck.txt
+py test/test_frozen_exe.py --no-build      # real transcribe through the exe (~1 min)
 ```
 
 Result:
@@ -527,13 +577,15 @@ dist\Subtra\
     assets\app.ico             ← window icon
     ffmpeg\bin\ffmpeg.exe      ← no PATH needed
     ffmpeg\bin\ffprobe.exe
-    _internal\...
+    _internal\
+        faster_whisper\assets\silero_vad_v6.onnx   ← required for VAD
 ```
 
 - **Folder mode** is used (not `--onefile`): fast startup, persistent models.
 - If you prefer not to bundle FFmpeg, delete the folder and the app will
   download it on first launch.
 - If antivirus flags the exe, add the folder to its exclusions.
+- About **347 MB** unpacked with FFmpeg; the zip is roughly half that.
 
 ---
 
@@ -556,6 +608,7 @@ dist\Subtra\
 | Glossary term not applied | Check the term's source spelling and, if set, its `en>tr` column; the log line reports matched/lost terms |
 | Wrong language detected in a multi-audio file | Pick the right track in **Audio track** on the Video tab; the default is the first track |
 | "This subtitle stream is image-based" | PGS/VobSub cannot be converted to text — use a text stream or an external `.srt` |
+| **The packaged exe starts but nothing works** | Run `Subtra.exe --self-check`; the report in `%LOCALAPPDATA%\Subtra\selfcheck.txt` names the cause |
 | CI fails on an old tag | Only the exact tag on `HEAD` is compared, so a version bump is safe until you tag |
 
 When reporting a problem, use **Copy error report**; it includes version, OS,

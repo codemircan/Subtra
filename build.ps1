@@ -75,6 +75,26 @@ if ((Test-Path $localFfmpeg) -and (Test-Path $localProbe)) {
 Write-Step "README kopyalaniyor"
 Copy-Item (Join-Path $root "README.md") $dist -Force -ErrorAction SilentlyContinue
 
+# Paketlenmis exe dogrulamasi: VAD modeli / DLL / simge gercekten icinde mi ve
+# exe altyazi uretebiliyor mu? Bu adim yokken exe uc sessiz hatayla bozuktu.
+Write-Step "Paket dogrulamasi (self-check)"
+& (Join-Path $dist "Subtra.exe") --self-check
+$selfCheckCode = $LASTEXITCODE
+$selfReport = Join-Path $env:LOCALAPPDATA "Subtra\selfcheck.txt"
+if (Test-Path $selfReport) {
+    Get-Content $selfReport | Write-Host
+} else {
+    Write-Warning "selfcheck.txt bulunamadi ($selfCheckCode)."
+}
+
+if (-not $SkipTests) {
+    Write-Step "Paket dogrulamasi (uctan uca)"
+    & py -3.14 test/test_frozen_exe.py --no-build
+    if ($LASTEXITCODE -ne 0) { throw "Paketlenmis exe testi basarisiz." }
+} else {
+    Write-Host "Paket uctan uca testi atlandi (-SkipTests)."
+}
+
 if (-not $SkipZip) {
     Write-Step "Tasinabilir zip"
     $zip = Join-Path $root "Subtra-portable.zip"
