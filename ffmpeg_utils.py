@@ -269,6 +269,113 @@ def has_video_stream(ffprobe: str, path: str | Path) -> bool:
     )
 
 
+# Metne cevrilebilen altyazi codec'leri. Gorsel tabanli olanlar (PGS,
+# VobSub, DVB) ffmpeg ile SRT'ye cevrilemez; kullaniciya net soylenir.
+TEXT_SUBTITLE_CODECS = frozenset(
+    {
+        "subrip",
+        "srt",
+        "ass",
+        "ssa",
+        "mov_text",
+        "webvtt",
+        "text",
+        "microdvd",
+        "subviewer",
+        "subviewer1",
+        "sami",
+        "realtext",
+        "jacosub",
+        "mpl2",
+        "pjs",
+        "stl",
+        "vplayer",
+        "eia_608",
+    }
+)
+IMAGE_SUBTITLE_CODECS = frozenset(
+    {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub"}
+)
+
+
+def subtitle_streams(ffprobe: str, path: str | Path) -> list[dict]:
+    """Videodaki gomulu altyazi akislarini listeler (sirali)."""
+    info = probe_media(ffprobe, path)
+    streams: list[dict] = []
+    for stream in info.get("streams", []):
+        if stream.get("codec_type") != "subtitle":
+            continue
+        tags = stream.get("tags") or {}
+        disposition = stream.get("disposition") or {}
+        codec = (stream.get("codec_name") or "").strip().lower()
+        try:
+            index = int(stream.get("index", 0))
+        except (TypeError, ValueError):
+            continue
+        streams.append(
+            {
+                "index": index,
+                "codec": codec,
+                "language": (tags.get("language") or "").strip().lower(),
+                "title": (tags.get("title") or "").strip(),
+                "default": bool(disposition.get("default")),
+                "forced": bool(disposition.get("forced")),
+                "text_based": codec in TEXT_SUBTITLE_CODECS,
+                "image_based": codec in IMAGE_SUBTITLE_CODECS,
+            }
+        )
+    return streams
+
+
+def extract_subtitle_stream(
+    ffmpeg: str,
+    ffprobe: str,
+    source: str | Path,
+    stream_index: int,
+    dest_srt: str | Path,
+    cancel_event: threading.Event | None = None,
+) -> Path:
+    """Gomulu altyazi akisini SRT dosyasina cikarir.
+
+    Gorsel tabanli akislar (PGS/VobSub) metne cevrilemedigi icin net hata
+    verir; bos/bozuk bir SRT uretmez.
+    """
+    streams = {stream["index"]: stream for stream in subtitle_streams(ffprobe, source)}
+    stream = streams.get(int(stream_index))
+    if stream is None:
+        raise FFmpegError(
+            f"Altyazı akışı bulunamadı (indeks {stream_index}). "
+            f"Mevcut akışlar: {sorted(streams) or 'yok'}"
+        )
+    if not stream["text_based"]:
+        codec = stream["codec"] or "bilinmeyen"
+        raise FFmpegError(
+            f"Bu altyazı akışı görüntü tabanlı ({codec}) ve metne çevrilemiyor.\n"
+            "Metin tabanlı bir akış seçin (SRT/ASS/mov_text) veya altyazıyı "
+            "videodan bağımsız bir .srt dosyası olarak edinin."
+        )
+
+    destination = Path(dest_srt)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    duration = media_duration(ffprobe, source)
+    cmd = [
+        ffmpeg,
+        "-i",
+        str(source),
+        "-map",
+        f"0:{int(stream_index)}",
+        "-c:s",
+        "srt",
+        str(destination),
+    ]
+    _run_ffmpeg(cmd, duration=duration, cancel_event=cancel_event)
+    if not destination.exists() or destination.stat().st_size == 0:
+        raise FFmpegError(
+            "Altyazı akışı çıkarılamadı: çıktı boş. Akış bozuk olabilir."
+        )
+    return destination
+
+
 def media_duration(ffprobe: str, path: str | Path) -> float:
     info = probe_media(ffprobe, path)
     duration = 0.0

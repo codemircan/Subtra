@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -41,12 +42,14 @@ import app_paths
 import error_report
 import ffmpeg_bootstrap
 import ffmpeg_utils
+import glossary as glossary_mod
 import logging_setup
 from ffmpeg_utils import FFMPEG_DOWNLOAD_URL, SubtitleStyle
 from hardware import hardware_info, recommended_model_size
 from languages import (
     TARGET_LANGUAGES,
     WHISPER_LANGUAGE_NAMES_TR,
+    from_subtitle_tag,
     language_label,
     target_options,
 )
@@ -196,6 +199,7 @@ class MainWindow(QMainWindow):
         self._settings = QSettings("Subtra", "Subtra")
         self._ffmpeg_path: str = self._settings.value("ffmpeg_path", "", str) or ""
         self._color = self._settings.value("subtitle_color", "#FFFFFF", str) or "#FFFFFF"
+        self._glossary_path: str = ""
 
         self._worker: VideoWorker | None = None
         self._batch: BatchWorker | None = None
@@ -306,6 +310,13 @@ class MainWindow(QMainWindow):
         self.single_file_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         row.addWidget(choose)
         row.addWidget(self.single_file_label, 1)
+        self.embedded_button = QPushButton("Gömülü Altyazı Kullan…")
+        self.embedded_button.setToolTip(
+            "Videonun içindeki altyazı akışını .srt olarak çıkarır, "
+            "'SRT Çevir' sekmesine taşır (transkripsiyon atlanır)."
+        )
+        self.embedded_button.clicked.connect(self._import_embedded_subtitle)
+        row.addWidget(self.embedded_button)
         layout.addLayout(row)
 
         options = QGroupBox("İş seçenekleri")
@@ -659,6 +670,29 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(quality_box)
 
+        # Terim sozlugu ------------------------------------------------------
+        glossary_box = QGroupBox("Terim sözlüğü (glossary)")
+        glossary_layout = QVBoxLayout(glossary_box)
+        glossary_row = QHBoxLayout()
+        self.glossary_label = _make_hint("Kapalı — terimler serbest çevrilir")
+        self.glossary_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.glossary_choose_button = QPushButton("Dosya Seç…")
+        self.glossary_choose_button.clicked.connect(self._choose_glossary)
+        self.glossary_clear_button = QPushButton("Kaldır")
+        self.glossary_clear_button.clicked.connect(self._clear_glossary)
+        glossary_row.addWidget(self.glossary_label, 1)
+        glossary_row.addWidget(self.glossary_choose_button)
+        glossary_row.addWidget(self.glossary_clear_button)
+        glossary_layout.addLayout(glossary_row)
+        glossary_layout.addWidget(
+            _make_hint(
+                "Biçim: kaynak<TAB>hedef, satır başına bir terim. İsteğe bağlı "
+                "3. sütun dil çifti (en>tr). Marka/terimler çeviride korunur. "
+                "Örnek: docs/glossary-ornek.tsv"
+            )
+        )
+        layout.addWidget(glossary_box)
+
         # FFmpeg ------------------------------------------------------------
         ffmpeg_box = QGroupBox("FFmpeg")
         ffmpeg_layout = QVBoxLayout(ffmpeg_box)
@@ -813,6 +847,13 @@ class MainWindow(QMainWindow):
             self._settings.value("overwrite_output", True, bool)
         )
 
+        stored_glossary = self._settings.value("glossary_path", "", str) or ""
+        if stored_glossary and Path(stored_glossary).exists():
+            self._set_glossary(stored_glossary, announce=False)
+        else:
+            self._glossary_path = ""
+            self.glossary_label.setText("Kapalı — terimler serbest çevrilir")
+
         source_lang = self._settings.value("srt_source_lang", "", str)
         index = self.srt_lang_combo.findData(source_lang)
         if index >= 0:
@@ -855,6 +896,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("srt_source_lang", self.srt_lang_combo.currentData())
         self._settings.setValue("srt_target_lang", self.srt_target_combo.currentData())
         self._settings.setValue("srt_output_mode", self.srt_output_combo.currentData())
+        self._settings.setValue("glossary_path", self._glossary_path)
 
     # ------------------------------------------------------------------
     # Kucuk yardimcilar
@@ -952,6 +994,48 @@ class MainWindow(QMainWindow):
         removed = transcript_cache.clear(directory)
         self._append_log(f"Transkript önbelleği temizlendi: {removed} kayıt.")
         self._refresh_cache_info()
+
+    # -- terim sozlugu ------------------------------------------------------
+    def _set_glossary(self, path: str, announce: bool = True) -> bool:
+        """Sozlugu dogrular ve etkinlestirir; hatali dosyada False doner."""
+        path = (path or "").strip()
+        if not path:
+            self._glossary_path = ""
+            self.glossary_label.setText("Kapalı — terimler serbest çevrilir")
+            self.glossary_label.setStyleSheet("")
+            return True
+        try:
+            loaded = glossary_mod.load_glossary(path)
+        except glossary_mod.GlossaryError as exc:
+            if announce:
+                QMessageBox.warning(self, "Sözlük okunamadı", str(exc))
+            self._glossary_path = ""
+            self.glossary_label.setText("Kapalı — terimler serbest çevrilir")
+            return False
+        self._glossary_path = path
+        self.glossary_label.setText(f"{Path(path).name} — {len(loaded)} terim")
+        self.glossary_label.setStyleSheet("")
+        if announce:
+            self._append_log(f"Terim sözlüğü etkin: {path} ({len(loaded)} terim)")
+        return True
+
+    def _choose_glossary(self) -> None:
+        start = str(Path(self._glossary_path).parent) if self._glossary_path else ""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Terim sözlüğü seçin",
+            start,
+            "Sözlük (*.tsv *.txt *.csv);;Tüm dosyalar (*)",
+        )
+        if path and self._set_glossary(path):
+            self._save_settings()
+
+    def _clear_glossary(self) -> None:
+        if not self._glossary_path:
+            return
+        self._set_glossary("")
+        self._save_settings()
+        self._append_log("Terim sözlüğü kaldırıldı.")
 
     def _update_crf_hint(self) -> None:
         """CRF degerinin kalite/boyut etkisini aciklar."""
@@ -1236,6 +1320,106 @@ class MainWindow(QMainWindow):
         self.single_drop.set_text(f"Seçili video:\n{Path(path).name}")
         self._append_log(f"Video seçildi: {path}")
 
+    @staticmethod
+    def _stream_label(stream: dict) -> str:
+        language = stream.get("language") or "dil bilinmiyor"
+        parts = [f"#{stream.get('index')} · {stream.get('codec') or '?'} · {language}"]
+        if stream.get("title"):
+            parts.append(stream["title"])
+        if stream.get("default"):
+            parts.append("[varsayılan]")
+        if stream.get("forced"):
+            parts.append("[zorunlu]")
+        if not stream.get("text_based"):
+            parts.append("(görüntü tabanlı — metne çevrilemez)")
+        return " · ".join(parts)
+
+    def _import_embedded_subtitle(self) -> None:
+        """Videonun gomulu altyazi akisini .srt olarak cikarir."""
+        if self._is_busy():
+            return
+        path = getattr(self, "_single_input", "")
+        if not path or not Path(path).exists():
+            QMessageBox.information(
+                self, "Video seçilmedi", "Lütfen önce gömülü altyazısı olan bir video seçin."
+            )
+            return
+
+        location = ffmpeg_bootstrap.find_existing(self._ffmpeg_path or None)
+        if location is None:
+            QMessageBox.warning(
+                self,
+                "FFmpeg gerekli",
+                "Gömülü altyazıyı çıkarmak için FFmpeg gerekli.\n\n"
+                "Ayarlar sekmesinden FFmpeg'i indirebilir veya yolunu gösterebilirsiniz.",
+            )
+            return
+
+        try:
+            streams = ffmpeg_utils.subtitle_streams(location.ffprobe, path)
+        except ffmpeg_utils.FFmpegError as exc:
+            QMessageBox.warning(self, "Video okunamadı", str(exc))
+            return
+
+        if not streams:
+            QMessageBox.information(
+                self,
+                "Gömülü altyazı yok",
+                "Bu videoda gömülü altyazı akışı bulunamadı.\n\n"
+                "Altyazıyı video ile birlikte ayrı bir .srt dosyası olarak seçebilirsiniz.",
+            )
+            return
+
+        labels = [self._stream_label(stream) for stream in streams]
+        selected, accepted = QInputDialog.getItem(
+            self,
+            "Gömülü altyazı seçin",
+            "Videodaki altyazı akışı:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        stream = streams[labels.index(selected)]
+        if not stream["text_based"]:
+            QMessageBox.warning(
+                self,
+                "Desteklenmeyen altyazı türü",
+                f"Bu akış görüntü tabanlı ({stream['codec']}) ve metne çevrilemiyor.\n\n"
+                "SRT/ASS/mov_text gibi metin tabanlı bir akış seçin.",
+            )
+            return
+
+        stem = Path(path).stem
+        suffix = stream["language"] or f"s{stream['index']}"
+        destination = Path(path).with_name(f"{stem}_embedded_{suffix}.srt")
+        try:
+            ffmpeg_utils.extract_subtitle_stream(
+                location.ffmpeg,
+                location.ffprobe,
+                path,
+                stream["index"],
+                destination,
+            )
+        except ffmpeg_utils.FFmpegError as exc:
+            QMessageBox.warning(self, "Altyazı çıkarılamadı", str(exc))
+            return
+
+        self._append_log(f"Gömülü altyazı çıkarıldı: {destination}")
+        self.tabs.setCurrentIndex(2)  # SRT Çevir
+        self._set_srt_input(str(destination))
+        language_code = from_subtitle_tag(stream["language"])
+        if language_code:
+            index = self.srt_lang_combo.findData(language_code)
+            if index >= 0:
+                self.srt_lang_combo.setCurrentIndex(index)
+        self._append_log(
+            "SRT sekmesine taşındı: kaynak dil "
+            + (language_code or "otomatik tahmin")
+            + ", hedef dili seçip başlatın."
+        )
+
     def _base_settings(
         self,
         input_path: str = "",
@@ -1263,6 +1447,7 @@ class MainWindow(QMainWindow):
             skip_preview=not self.preview_check.isChecked(),
             overwrite=self.overwrite_check.isChecked(),
             source_lang=self.srt_lang_combo.currentData() or "",
+            glossary_path=self._glossary_path,
         )
 
     def _preflight(self, needs_engine: bool = True) -> bool:

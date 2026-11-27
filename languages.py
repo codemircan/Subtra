@@ -326,3 +326,51 @@ def language_label(code: str | None) -> str:
 def target_nllb(code: str) -> str:
     """Hedef dilin NLLB kodunu dondurur."""
     return TARGET_LANGUAGES[code]["nllb"]
+
+
+# ISO 639-2 terminolojik (T) -> bibliyografik (B) eslemeleri. ffprobe
+# genelde B kullanir (ger, fre, cze) ama Matroska/ISO 639-2/T de gorulur
+# (deu, fra, ces). Ikisini de Whisper koduna cevirebilmek icin gerekli.
+_ISO3_T_TO_B = {
+    "deu": "ger",
+    "fra": "fre",
+    "ces": "cze",
+    "nld": "dut",
+    "ell": "gre",
+    "ron": "rum",
+    "srp": "srp",
+    "hrv": "hrv",
+    "slk": "slo",
+    "slv": "slv",
+    "kat": "geo",
+    "eus": "baq",
+    "mya": "bur",
+    "mkd": "mac",
+    "sqi": "alb",
+    "hye": "arm",
+    "zho": "chi",
+    "fas": "per",
+    "msa": "may",
+    "isl": "ice",
+    "bod": "tib",
+}
+
+
+def from_subtitle_tag(code: str | None) -> str:
+    """Altyazi etiketini (tur/eng/deu) Whisper dil koduna cevirir.
+
+    Taninmayan/bos etiket icin bos dizge doner; cagiran taraf otomatik
+    tahmine duser.
+    """
+    value = (code or "").strip().lower()
+    if not value:
+        return ""
+    if len(value) == 2:
+        return value if value in WHISPER_TO_NLLB else ""
+    if len(value) != 3:
+        return ""
+    value = _ISO3_T_TO_B.get(value, value)
+    for whisper_code, tag in SUBTITLE_TAGS.items():
+        if tag == value:
+            return whisper_code
+    return ""
