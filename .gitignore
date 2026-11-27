@@ -116,7 +116,10 @@ htmlcov/
 coverage.xml
 *.cover
 test/_*
+
+# ---- Ajan calisma alanlari (plan/karar dosyalari, urun degil) ----
 .superpowers/
+docs/superpowers/
 
 # ---- Paketleme / dağıtım ----------------------------------
 *.zip

@@ -137,6 +137,11 @@ git checkout main            # stable release
 - The version test compared against the *nearest* tag, so every version bump
   failed until a tag existed; it now checks only an exact tag on `HEAD`.
 
+**2.4.1 — repository hygiene**
+- Internal planning notes were removed from the repository; the tree now holds
+  only source, tests, user-facing docs (`README.md`, `docs/README.tr.md`,
+  `docs/glossary-ornek.tsv`) and the icon. No functional change.
+
 ---
 
 ## Features

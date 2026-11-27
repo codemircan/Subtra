@@ -134,6 +134,11 @@ git checkout main            # kararlı sürüm
   etiket atılana kadar düşüyordu; artık yalnızca `HEAD` üzerindeki tam etikete
   bakar.
 
+**2.4.1 — depo temizliği**
+- İç planlama notları depodan çıkarıldı; ağaçta yalnızca kaynak kod, testler,
+  kullanıcıya dönük dokümanlar (`README.md`, `docs/README.tr.md`,
+  `docs/glossary-ornek.tsv`) ve simge kaldı. İşlevsel değişiklik yok.
+
 ---
 
 ## Özellikler
