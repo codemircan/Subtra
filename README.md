@@ -367,6 +367,7 @@ py test/test_glossary_pipeline.py# glossary through the translation flow (fake m
 py test/test_glossary_ui.py      # glossary picker in Settings
 py test/test_subtitle_import.py  # embedded stream listing/extraction (needs FFmpeg)
 py test/test_packaging.py        # pyproject + CI workflow consistency
+py test/test_ci_workflow.py      # workflow YAML schema + runs its steps locally
 py test/test_model_guard.py      # SUBTRA_NO_DOWNLOAD gives a clean error
 py test/test_icon.py             # assets/app.ico valid + wired up
 py test/test_cache_and_batch.py  # transcript cache + batch (~80s)

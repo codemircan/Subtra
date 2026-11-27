@@ -33,6 +33,16 @@ missing_tr = sorted(listed_tr - existing)
 check("README'deki testler var", not missing_en, str(missing_en))
 check("TR README'deki testler var", not missing_tr, str(missing_tr))
 
+# run_all.py'nin calistirdigi her test gercekten var mi?
+suite = (ROOT / "test" / "run_all.py").read_text(encoding="utf-8")
+suite_files = set(re.findall(r'"(test/test_[\w]+\.py)"', suite))
+check("run_all'daki testler var", not (suite_files - existing), str(sorted(suite_files - existing)))
+check(
+    "yeni P3 testleri run_all'da",
+    {"test/test_glossary.py", "test/test_subtitle_import.py", "test/test_icon.py",
+     "test/test_ci_workflow.py"} <= suite_files,
+)
+
 # Calistirilabilir her testin en azindan birinde gecmesi gerekmez (bazi
 # testler ic yardimci) ama yeni P3 testleri ikisinde de olmali.
 for name in (

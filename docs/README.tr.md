@@ -363,6 +363,7 @@ py test/test_glossary_pipeline.py # sözlük + çeviri akışı (sahte model)
 py test/test_glossary_ui.py       # Ayarlar'daki sözlük seçimi
 py test/test_subtitle_import.py   # gömülü akış listeleme/çıkarma (FFmpeg gerekir)
 py test/test_packaging.py         # pyproject + CI tutarlılığı
+py test/test_ci_workflow.py       # workflow YAML şeması + adımları yerelde
 py test/test_model_guard.py       # SUBTRA_NO_DOWNLOAD temiz hata verir
 py test/test_icon.py              # assets/app.ico geçerli + bağlı
 py test/test_cache_and_batch.py   # transkript önbelleği + batch (~80 sn)

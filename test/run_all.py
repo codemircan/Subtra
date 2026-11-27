@@ -26,6 +26,7 @@ TESTS = [
     # (ad, argümanlar, ağ/model gerektirir mi)
     ("Sürüm tutarlılığı", ["test/test_version.py"], False),
     ("Paketleme / CI", ["test/test_packaging.py"], False),
+    ("CI workflow doğrulama", ["test/test_ci_workflow.py"], False),
     ("Dokümantasyon", ["test/test_docs.py"], False),
     ("Başlatma (DPI / konsol)", ["test/test_startup.py"], False),
     ("Altyazı birim testleri", ["test/test_subtitles.py"], False),
