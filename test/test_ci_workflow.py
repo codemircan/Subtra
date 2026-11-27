@@ -32,6 +32,14 @@ print("=" * 66)
 print("CI WORKFLOW DOGRULAMA")
 print("=" * 66)
 
+# Bu test kendi icinde `test/run_all.py` calistirir. Ic ice cagrida (veya
+# GitHub Actions'in kendisinde) tekrar calismamali: aksi halde sonsuz
+# ozyineleme olur. Ic kosuda SKIP (exit 77) doner.
+if os.environ.get("SUBTRA_CI_INNER") or os.environ.get("GITHUB_ACTIONS"):
+    print("\n  SKIP: ic ice CI simulasyonu (SUBTRA_CI_INNER / GITHUB_ACTIONS).")
+    print("  (test atlandi, hata degil)")
+    sys.exit(77)
+
 print("\n1) YAML gecerliligi")
 raw = WORKFLOW.read_text(encoding="utf-8")
 parsed = yaml.safe_load(raw)
@@ -79,6 +87,7 @@ env_local.update(
     PYTHONIOENCODING="utf-8",
     QT_QPA_PLATFORM="offscreen",
     SUBTRA_NO_DOWNLOAD="1",
+    SUBTRA_CI_INNER="1",  # ic run_all'da bu test tekrar kosmasin
 )
 
 proc = subprocess.run(
