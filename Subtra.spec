@@ -17,6 +17,12 @@ PROJECT = Path(SPECPATH)
 
 datas = []
 
+# Simge dosyasi (assets/) exe'nin yanina kopyalanir: pencere simgesi ve
+# PyInstaller'in exe ikonu ayni dosyayi kullanir.
+assets_dir = PROJECT / "assets"
+if assets_dir.exists():
+    datas.append((str(assets_dir), "assets"))
+
 # Simge varsa ekle
 icon_path = PROJECT / "assets" / "app.ico"
 icon = str(icon_path) if icon_path.exists() else None
@@ -31,6 +37,9 @@ hiddenimports = [
     "onnxruntime",
     "av",
     "numpy",
+    "glossary",
+    "subtitle_preview",
+    "transcript_cache",
     "PySide6.QtCore",
     "PySide6.QtGui",
     "PySide6.QtWidgets",

@@ -104,6 +104,10 @@ def main() -> int:
     app.setAttribute(Qt.AA_DontUseNativeMenuBar, False)
     app.setFont(QFont("Segoe UI", 9))
 
+    icon = _app_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
+
     try:
         window = MainWindow()
         window.show()
@@ -129,6 +133,22 @@ def _version() -> str:
         return error_report.app_version()
     except Exception:
         return "?"
+
+
+def _app_icon():
+    """assets/app.ico varsa QIcon dondurur (yoksa None)."""
+    try:
+        from PySide6.QtGui import QIcon
+
+        import app_paths
+
+        for root in (app_paths.bundled_root(), app_paths.app_root()):
+            candidate = root / "assets" / "app.ico"
+            if candidate.exists():
+                return QIcon(str(candidate))
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 if __name__ == "__main__":

@@ -55,7 +55,7 @@ for path in ROOT.glob("*.py"):
 
 check("tek tanım (version.py)", not offenders, ", ".join(offenders) or "temiz")
 
-# Git etiketi (varsa) ile uyuşmalı — yalnızca çalışma ağacı temizse.
+# Git etiketi (varsa) ile uyuşmalı — yalnızca bu commit etiketliyse.
 # Geliştirme sırasında sürüm yükseltilip henüz etiketlenmemiş olabilir;
 # o durumda kontrol bilgi olarak geçer, hata vermez.
 tag_ok = True
@@ -66,8 +66,11 @@ try:
         cwd=str(ROOT), capture_output=True, text=True, timeout=30,
     ).stdout.strip()
 
+    # Yalnızca HEAD'in kendi etiketi bağlayıcıdır. `git describe --tags`
+    # eski bir sürümün etiketini döndürüp yeni sürümü yanlışlıkla
+    # "uyumsuz" gösteriyordu (CI'da her sürüm yükseltmesinde).
     result = subprocess.run(
-        ["git", "describe", "--tags", "--abbrev=0"],
+        ["git", "describe", "--tags", "--exact-match", "HEAD"],
         cwd=str(ROOT), capture_output=True, text=True, timeout=30,
     )
     if result.returncode == 0 and result.stdout.strip():
@@ -78,7 +81,7 @@ try:
             tag_detail = f"etiket {tag}"
             tag_ok = tag == version.tag_name()
     else:
-        tag_detail = "etiket yok (henüz tag atılmamış)"
+        tag_detail = "bu commit etiketli değil (kontrol atlandı)"
 except (OSError, subprocess.SubprocessError) as exc:
     tag_detail = f"git okunamadı: {exc}"
 

@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subtra"
+dynamic = ["version"]
+description = "Offline CPU subtitle generator and translator for Windows (Whisper + NLLB)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "codemircan" }]
+keywords = ["subtitles", "translation", "whisper", "nllb", "ffmpeg", "offline"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "PySide6>=6.5,<7",
+    "faster-whisper>=1.1",
+    "ctranslate2>=4.4",
+    "sentencepiece>=0.2",
+    "requests>=2.31",
+    "tokenizers>=0.15",
+    "psutil>=5.9",
+]
+
+[project.urls]
+Homepage = "https://github.com/codemircan/Subtra"
+Issues = "https://github.com/codemircan/Subtra/issues"
+Changelog = "https://github.com/codemircan/Subtra/releases"
+
+[project.gui-scripts]
+subtra = "main:main"
+
+[tool.setuptools]
+py-modules = [
+    "app_paths",
+    "error_report",
+    "errors",
+    "ffmpeg_bootstrap",
+    "ffmpeg_utils",
+    "glossary",
+    "gui",
+    "hardware",
+    "languages",
+    "logging_setup",
+    "main",
+    "subtitles",
+    "subtitle_preview",
+    "transcriber",
+    "transcript_cache",
+    "translator",
+    "version",
+    "worker",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "version.__version__" }
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+exclude = [
+    ".git",
+    "__pycache__",
+    "ffmpeg",
+    "models",
+    "dist",
+    "build",
+]
+
+[tool.ruff.lint]
+# Yalnizca gercek hatalar: sozdizimi, tanimsiz isim, kullanilmayan import
+# degil. Uslup kurallari bu projede bilincli olarak devre disi.
+select = ["E9", "F63", "F7", "F82"]

@@ -115,6 +115,8 @@ htmlcov/
 .nox/
 coverage.xml
 *.cover
+test/_*
+.superpowers/
 
 # ---- Paketleme / dağıtım ----------------------------------
 *.zip
