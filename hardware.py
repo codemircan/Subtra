@@ -192,8 +192,17 @@ MODEL_RAM_MB = {
     "medium": 1550,
 }
 NLLB_RAM_MB = 820
-# Windows + Python + Qt + tamponlar icin birakilmasi gereken pay.
-OVERHEAD_RAM_MB = 1500
+# Windows + Python + Qt + tamponlar + FFmpeg alt sureci icin pay.
+#
+# Olculdu (bu depoda, 2026-11):
+#   * Qt GUI acik + tiny + NLLB toplam surec RSS'i: 863 MB
+#     (model tahminleri 930 MB; yani model paylari zaten muhafazakar)
+#   * FFmpeg burn-in tepe RSS'i (1080p, crf 18): 164 MB (ayri surec)
+#   * 10 dk'lik WAV dilimi: ~38 MB
+# 1500 MB pay, 8 GB'lik bir makinede 1.5 GB bosken uygulamayi gereksiz yere
+# reddediyordu (gercek ihtiyac ~1 GB). 400 MB, olculenin ~2 kati: buyuk
+# videolarda FFmpeg'in sisip tamponlari artirmasi icin emniyet payi kalir.
+OVERHEAD_RAM_MB = 400
 
 
 def available_ram_mb() -> int:

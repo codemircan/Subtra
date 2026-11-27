@@ -233,7 +233,8 @@ else:
         )
         return JobRunner(settings, ModelCache(models_dir), worker_mod.JobHooks(log=logs.append))
 
-    # Kanal 0 = saf ton: konusma yok -> net hata
+        # Kanal 0 = saf ton: konusma yok -> net hata
+    _memory_skip = False
     try:
         make_runner(0).run()
         check("kanal 0 (ton) konusma bulamadi", False, "beklenen istisna gelmedi")
@@ -244,8 +245,6 @@ else:
             raise
         print("  SKIP: bos RAM yetersiz (bellek korumasi) — uctan uca bolum atlandi.")
         _memory_skip = True
-    else:
-        _memory_skip = False
 
     def _run_whisper_sections() -> None:
         # Kanal 1 = konusma: metin cikmali
