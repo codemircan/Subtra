@@ -24,8 +24,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from errors import CancelledError, ModelDownloadError, TranslationError
+from glossary import Glossary
 from languages import TARGET_LANGUAGES, whisper_to_nllb
-from transcriber import download_repo_files
+from transcriber import _downloads_disabled, download_repo_files
 
 NLLB_REPO = "JustFrederik/nllb-200-distilled-600M-ct2-int8"
 NLLB_DIR_NAME = "nllb-200-distilled-600M-ct2-int8"
@@ -325,8 +326,15 @@ def translate_sentences(
     tgt_nllb: str,
     progress_cb: ProgressCB = None,
     cancel_event: threading.Event | None = None,
+    glossary: Glossary | None = None,
+    source_lang: str = "",
+    target_lang: str = "",
 ) -> list[dict]:
-    """Cumle listesini cevirir; her cumleye `translated` anahtari ekler."""
+    """Cumle listesini cevirir; her cumleye `translated` anahtari ekler.
+
+    `glossary` verilirse terimler ceviriden once yer tutucuyla korunur ve
+    ceviriden sonra hedef karsiligi yazilir.
+    """
     if not sentences:
         return []
 
@@ -334,16 +342,40 @@ def translate_sentences(
     texts = [sentence["text"] for sentence in sentences]
     if src_nllb == tgt_nllb:
         for sentence, text in zip(output, texts):
-            sentence["translated"] = text
+            if glossary:
+                sentence["translated"] = glossary.apply(
+                    text, source_lang, target_lang
+                )
+            else:
+                sentence["translated"] = text
         if progress_cb:
             progress_cb(1.0)
         return output
 
+    mappings: list[dict[str, str]] = []
+    if glossary:
+        protected: list[str] = []
+        for text in texts:
+            guarded, mapping = glossary.protect(text, source_lang, target_lang)
+            protected.append(guarded)
+            mappings.append(mapping)
+        texts = protected
+    else:
+        mappings = [{} for _ in texts]
+
     translated = translator.translate_batch(
         texts, src_nllb, tgt_nllb, progress_cb=progress_cb, cancel_event=cancel_event
     )
-    for sentence, text in zip(output, translated):
-        sentence["translated"] = text or sentence["text"]
+    for index, (sentence, text) in enumerate(zip(output, translated)):
+        result = text or sentence["text"]
+        if glossary and mappings[index]:
+            result, report = glossary.restore_full(
+                result, mappings[index], source_lang, target_lang
+            )
+            sentence["glossary_applied"] = report.applied
+            if report.unresolved:
+                sentence["glossary_lost"] = list(report.unresolved)
+        sentence["translated"] = result
     return output
 
 
@@ -372,10 +404,16 @@ class TranslationPipeline:
         batch_size: int = 8,
         max_pending: int = 8,
         cancel_event: threading.Event | None = None,
+        glossary: Glossary | None = None,
+        source_lang: str = "",
+        target_lang: str = "",
     ) -> None:
         self._translator = translator
         self._src = src_nllb
         self._tgt = tgt_nllb
+        self._glossary = glossary
+        self._source_lang = source_lang
+        self._target_lang = target_lang
         self._batch_size = max(1, batch_size)
         self._cancel = cancel_event or threading.Event()
         self._queue: "queue.Queue[dict | None]" = queue.Queue(maxsize=max_pending)
@@ -398,10 +436,11 @@ class TranslationPipeline:
 
     def submit(self, sentence: dict) -> None:
         if self._same_language:
+            text = sentence.get("text", "")
+            if self._glossary:
+                text = self._glossary.apply(text, self._source_lang, self._target_lang)
             with self._lock:
-                self._results[self._next_index] = dict(
-                    sentence, translated=sentence.get("text", "")
-                )
+                self._results[self._next_index] = dict(sentence, translated=text)
                 self._next_index += 1
                 self.stats.sentences += 1
             return
@@ -461,6 +500,16 @@ class TranslationPipeline:
         batch = self._pending
         self._pending = []
         texts = [item["text"] for item in batch]
+        mappings: list[dict[str, str]] = [{} for _ in texts]
+        if self._glossary:
+            protected: list[str] = []
+            for index, text in enumerate(texts):
+                guarded, mapping = self._glossary.protect(
+                    text, self._source_lang, self._target_lang
+                )
+                protected.append(guarded)
+                mappings[index] = mapping
+            texts = protected
         translated = self._translator.translate_batch(
             texts,
             self._src,
@@ -470,9 +519,17 @@ class TranslationPipeline:
         )
         self.stats.batches += 1
         with self._lock:
-            for item, text in zip(batch, translated):
+            for item, text, mapping in zip(batch, translated, mappings):
                 index = item.pop("_index")
-                self._results[index] = dict(item, translated=text or item["text"])
+                result = text or item["text"]
+                if self._glossary and mapping:
+                    result, report = self._glossary.restore_full(
+                        result, mapping, self._source_lang, self._target_lang
+                    )
+                    item["glossary_applied"] = report.applied
+                    if report.unresolved:
+                        item["glossary_lost"] = list(report.unresolved)
+                self._results[index] = dict(item, translated=result)
 
     def finish(self) -> list[dict]:
         if self._thread is not None:
@@ -499,15 +556,27 @@ def translate_all(
     target_language: str,
     progress_cb: ProgressCB = None,
     cancel_event: threading.Event | None = None,
+    glossary: Glossary | None = None,
 ) -> list[dict]:
     """Tek seferde cevirir (pipeline yok)."""
     src_nllb, tgt_nllb = resolve_languages(detected_language, target_language)
     if src_nllb is None:
         for sentence in sentences:
-            sentence["translated"] = sentence.get("text", "")
+            text = sentence.get("text", "")
+            if glossary:
+                text = glossary.apply(text, detected_language, target_language)
+            sentence["translated"] = text
         if progress_cb:
             progress_cb(1.0)
         return sentences
     return translate_sentences(
-        translator, sentences, src_nllb, tgt_nllb, progress_cb, cancel_event
+        translator,
+        sentences,
+        src_nllb,
+        tgt_nllb,
+        progress_cb,
+        cancel_event,
+        glossary=glossary,
+        source_lang=detected_language,
+        target_lang=target_language,
     )

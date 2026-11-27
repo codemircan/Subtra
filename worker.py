@@ -27,6 +27,7 @@ from PySide6.QtCore import QThread, Signal
 
 import app_paths
 import ffmpeg_utils
+import glossary as glossary_mod
 import subtitles as subtitles_mod
 import transcript_cache
 from errors import (
@@ -97,6 +98,7 @@ class JobSettings:
     skip_preview: bool = False        # SRT onay diyalogu gosterilmesin
     input_srt: str = ""               # dolu ise transkripsiyon atlanir
     source_lang: str = ""             # SRT ice aktarmada kaynak dil (bos = tahmin)
+    glossary_path: str = ""           # terim sozlugu dosyasi (bos = kapali)
 
     def resolved_pipeline(self) -> bool:
         if self.pipeline_mode == "on":
@@ -344,6 +346,7 @@ class JobRunner:
         self._temp_dir: Path | None = None
         self._started_at = 0.0
         self._pipeline_results: list[dict] | None = None
+        self._glossary: glossary_mod.Glossary | None = None
         self._video_width = 0
         self._video_height = 0
         self._video_fps = 0.0
@@ -393,6 +396,7 @@ class JobRunner:
     def _execute(self) -> tuple[str, str, str]:
         settings = self.settings
         self._stage("Hazırlanıyor", 0)
+        self._glossary = self._load_glossary()
 
         # Bellek kontrolü: model yüklemeden ÖNCE, net hata ile dur.
         # Kuyrukta modeller zaten bellekteyse yeniden sayma.
@@ -472,6 +476,7 @@ class JobRunner:
             f"Tespit edilen dil: {language_label(detected)} ({detected or '?'}) "
             f"— güven: %{confidence * 100:.1f}"
         )
+        self._log_glossary_scope(detected)
 
         # --- 2) Ceviri -----------------------------------------------------
         sentences = subtitles_mod.group_sentences(words)
@@ -480,6 +485,7 @@ class JobRunner:
 
         self._check_cancel()
         sentences = self._translate(sentences, detected)
+        self._log_glossary_result(sentences)
 
         # --- 3) Altyazi ----------------------------------------------------
         self._stage("Altyazı oluşturuluyor", P_TRANSLATE_END)
@@ -579,6 +585,56 @@ class JobRunner:
         return str(video_out), str(srt_path), summary
 
     # -- adimlar -----------------------------------------------------------
+    def _load_glossary(self) -> glossary_mod.Glossary | None:
+        """Terim sozlugunu yukler; bozuksa ise baslamadan net hata verir."""
+        path_text = (self.settings.glossary_path or "").strip()
+        if not path_text:
+            return None
+        path = Path(path_text)
+        try:
+            loaded = glossary_mod.load_glossary(path)
+        except glossary_mod.GlossaryError as exc:
+            raise SubtraError(
+                "Terim sözlüğü okunamadı.\n\n"
+                f"{exc}\n\n"
+                "Dosyayı düzeltin veya Ayarlar'dan sözlüğü kaldırın."
+            ) from exc
+        self.hooks.log(f"Terim sözlüğü yüklendi: {path.name} ({len(loaded)} terim)")
+        return loaded
+
+    def _log_glossary_scope(self, detected: str) -> None:
+        if self._glossary is None:
+            return
+        active = self._glossary.entries_for(detected, self.settings.target_lang)
+        self.hooks.log(
+            f"Terim sözlüğü: {len(active)} terim bu iş için etkin "
+            f"({len(self._glossary)} toplam)"
+        )
+        if not active:
+            self.hooks.log(
+                "UYARI: Sözlükteki terimlerin hiçbiri bu dil çiftiyle eşleşmiyor."
+            )
+
+    def _log_glossary_result(self, sentences: list[dict]) -> None:
+        if self._glossary is None:
+            return
+        applied = sum(int(sentence.get("glossary_applied", 0) or 0) for sentence in sentences)
+        lost = sorted(
+            {
+                term
+                for sentence in sentences
+                for term in (sentence.get("glossary_lost") or [])
+            }
+        )
+        if applied == 0 and not lost:
+            self.hooks.log("Terim sözlüğü: kaynak metinde eşleşen terim bulunamadı.")
+            return
+        message = f"Terim sözlüğü: {applied} terim uygulandı"
+        if lost:
+            preview = ", ".join(lost[:5]) + ("…" if len(lost) > 5 else "")
+            message += f"; çıktıda bulunamayan {len(lost)} terim: {preview}"
+        self.hooks.log(message)
+
     def _prepare_ffmpeg(self):
         import ffmpeg_bootstrap
 
@@ -721,6 +777,9 @@ class JobRunner:
                 tgt_nllb,
                 max_pending=8,
                 cancel_event=self._cancel,
+                glossary=self._glossary,
+                source_lang=language,
+                target_lang=settings.target_lang,
             )
 
         def on_sentence(sentence: dict) -> None:
@@ -825,7 +884,12 @@ class JobRunner:
                 "Altyazı özgün dilde üretilecek."
             )
             for sentence in sentences:
-                sentence["translated"] = sentence.get("text", "")
+                text = sentence.get("text", "")
+                if self._glossary:
+                    text = self._glossary.apply(
+                        text, detected, settings.target_lang
+                    )
+                sentence["translated"] = text
             self._stage("Çeviri desteği yok (özgün metin)", P_TRANSLATE_END)
             return sentences
 
@@ -834,7 +898,12 @@ class JobRunner:
                 f"Kaynak dil hedef dil ile aynı ({language_label(detected)}); çeviri atlandı."
             )
             for sentence in sentences:
-                sentence["translated"] = sentence.get("text", "")
+                text = sentence.get("text", "")
+                if self._glossary:
+                    text = self._glossary.apply(
+                        text, detected, settings.target_lang
+                    )
+                sentence["translated"] = text
             self._stage("Çeviri gerekmiyor", P_TRANSLATE_END)
             return sentences
 
@@ -845,6 +914,10 @@ class JobRunner:
             if len(cached) == len(sentences):
                 for sentence, result in zip(sentences, cached):
                     sentence["translated"] = result.get("translated") or sentence.get("text", "")
+                    if result.get("glossary_applied"):
+                        sentence["glossary_applied"] = result["glossary_applied"]
+                    if result.get("glossary_lost"):
+                        sentence["glossary_lost"] = result["glossary_lost"]
                 self._stage("Çeviri tamamlandı", P_TRANSLATE_END)
                 return sentences
             # Sayilar tutmuyorsa yeniden cevir.
@@ -870,6 +943,9 @@ class JobRunner:
                 self._map(f, P_NLLB_MODEL_END, P_TRANSLATE_END)
             ),
             cancel_event=self._cancel,
+            glossary=self._glossary,
+            source_lang=detected,
+            target_lang=settings.target_lang,
         )
         self.hooks.log(f"Çeviri tamamlandı: {len(result)} cümle")
         return result

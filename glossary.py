@@ -210,6 +210,20 @@ class Glossary:
         matches = list(self._pattern(entry.source).finditer(folded))
         if not matches:
             return text, 0
+        # Var olan yer tutucularin icine girme: "G0" gibi bir terim
+        # "[[G0]]" metninin icinde eslesip yer tutucuyu bozabilir.
+        protected_spans = [match.span() for match in _PLACEHOLDER_RE.finditer(text)]
+        if protected_spans:
+            matches = [
+                match
+                for match in matches
+                if not any(
+                    match.start() < end and start < match.end()
+                    for start, end in protected_spans
+                )
+            ]
+            if not matches:
+                return text, 0
         pieces: list[str] = []
         last = 0
         for match in matches:

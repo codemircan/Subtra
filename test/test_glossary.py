@@ -164,6 +164,15 @@ check("tek kayit", len(g) == 1, str(len(g)))
 check("son deger kazandi", g.entries[0].target == "grafik islemcisi")
 dup.unlink(missing_ok=True)
 
+# --- 10) Yer tutucuyla cakisan terim --------------------------------------
+print("\n10) Yer tutucu metnine giren terim")
+g = Glossary((GlossaryEntry("IO", "girdi/cikti"), GlossaryEntry("G0", "BOZUK")))
+protected, mapping = g.protect("The IO port.", "en", "tr")
+restored, report = g.restore_full(protected, mapping, "en", "tr")
+check("yer tutucu korundu", "girdi/cikti" in restored, restored)
+check("yer tutucu bozulmadi", "[[G" not in restored, restored)
+check("hatali terim uygulanmadi", "BOZUK" not in restored, restored)
+
 failed = [label for label, ok, _ in checks if not ok]
 print()
 if failed:

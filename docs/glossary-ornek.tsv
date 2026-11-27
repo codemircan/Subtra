@@ -1,0 +1,20 @@
+# Subtra terim sözlüğü — örnek
+# Biçim: kaynak<TAB>hedef
+#   * Sekme yerine " -> " de kullanılabilir:  OpenAI -> OpenAI
+#   * İsteğe bağlı 3. sütun dil çiftidir: en>tr (boşsa tüm dillerde geçerli)
+#   * Satır başındaki # yorum satırıdır.
+#
+# Kullanım: Ayarlar → Terim sözlüğü → Dosya Seç…
+
+# Marka ve ürün adları: çevrilmesin
+Subtra	Subtra
+OpenAI	OpenAI
+GitHub	GitHub
+Whisper	Whisper
+CTranslate2	CTranslate2
+
+# Teknik terimler
+machine translation	makine çevirisi
+subtitle	altyazı
+prompt	komut
+benchmark	karşılaştırma testi	en>tr
