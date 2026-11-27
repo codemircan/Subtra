@@ -141,6 +141,27 @@ git checkout main            # kararlı sürüm
 
 ---
 
+## 2.5'te neler yeni
+
+**Ses kanalı seçimi**
+- Birden fazla ses kanalı olan videolarda (ör. Türkçe + İngilizce dublaj) artık
+  **istenen kanal** yazıya dökülür; eskiden her zaman ilk kanal okunuyordu.
+  Video sekmesi her kanalı dil, başlık, codec ve kanal sayısıyla listeler;
+  seçim sonraki çalıştırmalar için hatırlanır.
+- Uçtan uca doğrulandı: 1. kanalda 200 Hz ton, 2. kanalda konuşma olan dosyada
+  1. kanal "konuşma bulunamadı", 2. kanal doğru metni veriyor. Olmayan bir kanal
+  seçilirse ham FFmpeg çıktısı yerine net Türkçe mesaj çıkar.
+- Burn-in ve yumuşak altyazı çıktısı eskisi gibi **tüm** ses kanallarını korur.
+
+**Düzeltmeler**
+- **"Kelime düzeyinde zaman damgası" kapatılınca her iş çöküyordu.** Bu ayarla
+  faster-whisper `words` döndürmediği için altyazı hattı boş kalıyor ve her
+  çalıştırma "konuşma bulunamadı" ile bitiyordu. Segment metni artık sözde
+  kelimelere bölünüyor (süre karakter ağırlığına göre dağıtılır); seçenek
+  vaat ettiği gibi çalışıyor — ~%15 daha hızlı, bölme biraz daha kaba.
+
+---
+
 ## Özellikler
 
 - Otomatik dil tespiti (Whisper) + güven oranı göstergesi
@@ -158,6 +179,7 @@ git checkout main            # kararlı sürüm
 - Tüm ağır işler `QThread` içinde — arayüz donmaz
 - **Terim sözlüğü** — marka/terimleri çeviri boyunca birebir koru
 - **Gömülü altyazı içe aktarma** — videonun içindeki altyazıyı yeniden kullan
+- **Ses kanalı seçimi** — çok sesli dosyalarda hangi dublajın yazıya döküleceğini seç
 - Boşluklu / Türkçe karakterli yollar sorunsuz (UTF-8, `shell=True` yok)
 - Geçici dosyalar iş sonunda veya iptalde silinir
 - Türkçe hata mesajları
@@ -284,9 +306,11 @@ veya `calistir.bat` dosyasına çift tıklayın.
 ### Video sekmesi
 1. Videoyu sürükleyip bırakın veya **Dosya Seç…**
 2. **Whisper modeli** (öneri donanıma göre otomatik seçilir)
-3. **Hedef dil**: 21 dilden biri
-4. **Çıktı**: burn-in / yumuşak altyazı / sadece `.srt`
-5. Burn-in için stil ayarlayın → **Başlat**
+3. **Ses kanalı** — dosyada birden fazla ses varsa hangi dublajın yazıya
+   döküleceğini seçin (dil, başlık ve kanal sayısı gösterilir)
+4. **Hedef dil**: 21 dilden biri
+5. **Çıktı**: burn-in / yumuşak altyazı / sadece `.srt`
+6. Burn-in için stil ayarlayın → **Başlat**
 
 Videoda zaten altyazı varsa **Gömülü Altyazı Kullan…** seçilen akışı `.srt`
 olarak çıkarır ve kaynak dili doldurulmuş şekilde **SRT Çevir** sekmesine
@@ -363,6 +387,8 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 
 ```powershell
 py test/test_subtitles.py         # altyazı motoru
+py test/test_transcriber_units.py # kelime damgası kapalıyken sözde kelimeler
+py test/test_audio_select.py      # ses kanalı listeleme/çıkarma (FFmpeg gerekir)
 py test/test_glossary.py          # sözlük ayrıştırma, koruma/geri yazma, Türkçe harf
 py test/test_glossary_pipeline.py # sözlük + çeviri akışı (sahte model)
 py test/test_glossary_ui.py       # Ayarlar'daki sözlük seçimi
@@ -521,6 +547,7 @@ dist\Subtra\
 | Bellek yetersiz | Daha küçük model, `num_workers=1` — uygulama model yüklemeden önce boş RAM'i kontrol eder ve takasa girecekse `medium`'ı reddeder |
 | Sözlük terimi uygulanmadı | Terimin kaynak yazımını ve varsa `en>tr` sütununu kontrol edin; logda eşleşen/kaybolan terim sayısı yazar |
 | "Bu altyazı akışı görüntü tabanlı" | PGS/VobSub metne çevrilemez — metin tabanlı bir akış veya harici `.srt` kullanın |
+| Çok sesli dosyada yanlış dil bulundu | Video sekmesindeki **Ses kanalı** listesinden doğru kanalı seçin; varsayılan ilk kanaldır |
 | CI eski etikette düşüyor | Yalnızca `HEAD` üzerindeki tam etiket karşılaştırılır; sürüm yükseltmesi etiket atılana kadar güvenlidir |
 
 Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,
@@ -603,6 +630,11 @@ donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
   Yol escape'i iki katmanlı: `C\:/...` ve hata durumunda göreli ad + `cwd`.
 - **Yumuşak altyazı**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
 - **SRT**: UTF-8 (BOM'suz), LF, `HH:MM:SS,mmm`.
+- **Ses kanalı**: `ffprobe` ses akışlarını `audio_index` (0 tabanlı) ile
+  listeler; çıkarma `-map 0:a:<n>` kullanır. Görüntü/çıktı tarafında tüm ses
+  kanalları korunur (`-map 0:a?`), yalnızca transkripsiyon kaynağı seçilir.
+- **Kelime damgası kapalı**: faster-whisper `words` döndürmez; segment metni
+  süresi karakter ağırlığına göre dağıtılarak sözde kelimelere bölünür.
 - **Terim sözlüğü**: NLLB'nin koruduğu `[[G<n>]]` yer tutucuları (ölçüldü:
   `[[0]]` ve `__0__` aynen geçer, `⟦0⟧`/`«0»` bozulur). Eşleşmede `İ/ı/I`
   uzunluk korunarak `i`'ye katlanır, böylece konumlar kaymaz; çözülemeyen

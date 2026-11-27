@@ -334,6 +334,20 @@ class MainWindow(QMainWindow):
         self.model_hint = _make_hint("")
         options_layout.addWidget(self.model_hint)
 
+        audio_row = QHBoxLayout()
+        audio_row.addWidget(QLabel("Ses kanalı:"))
+        self.audio_track_combo = QComboBox()
+        self.audio_track_combo.setMinimumWidth(260)
+        self.audio_track_combo.addItem("Otomatik (ilk kanal)", 0)
+        self.audio_track_combo.setToolTip(
+            "Videoda birden fazla ses varsa (ör. Türkçe + İngilizce) hangisinin "
+            "yazıya döküleceğini seçin."
+        )
+        audio_row.addWidget(self.audio_track_combo)
+        self.audio_track_hint = _make_hint("Video seçilince kanallar listelenir.")
+        audio_row.addWidget(self.audio_track_hint, 1)
+        options_layout.addLayout(audio_row)
+
         target_row = QHBoxLayout()
         target_row.addWidget(QLabel("Hedef dil:"))
         self.target_combo = QComboBox()
@@ -897,6 +911,9 @@ class MainWindow(QMainWindow):
         self._settings.setValue("srt_target_lang", self.srt_target_combo.currentData())
         self._settings.setValue("srt_output_mode", self.srt_output_combo.currentData())
         self._settings.setValue("glossary_path", self._glossary_path)
+        self._settings.setValue(
+            "audio_track_index", int(self.audio_track_combo.currentData() or 0)
+        )
 
     # ------------------------------------------------------------------
     # Kucuk yardimcilar
@@ -1318,7 +1335,62 @@ class MainWindow(QMainWindow):
         self.single_file_label.setText(path)
         self.single_file_label.setStyleSheet("")
         self.single_drop.set_text(f"Seçili video:\n{Path(path).name}")
+        self._refresh_audio_tracks()
         self._append_log(f"Video seçildi: {path}")
+
+    def _refresh_audio_tracks(self) -> None:
+        """Secili videonun ses kanallarini combo'ya doldurur."""
+        combo = self.audio_track_combo
+        previous = self._settings.value("audio_track_index", 0, int) or 0
+        combo.blockSignals(True)
+        combo.clear()
+
+        path = getattr(self, "_single_input", "")
+        tracks: list[dict] = []
+        if path and Path(path).exists():
+            location = ffmpeg_bootstrap.find_existing(self._ffmpeg_path or None)
+            if location is not None:
+                try:
+                    tracks = ffmpeg_utils.audio_streams(location.ffprobe, path)
+                except ffmpeg_utils.FFmpegError:
+                    tracks = []
+
+        if tracks:
+            for track in tracks:
+                combo.addItem(self._audio_track_label(track), track["audio_index"])
+        else:
+            combo.addItem("Otomatik (ilk kanal)", 0)
+
+        # Onceki secimi koru (kanal sayisi degismis olabilir).
+        index = combo.findData(previous)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
+
+        if len(tracks) > 1:
+            self.audio_track_hint.setText(
+                f"{len(tracks)} ses kanalı bulundu — yazıya dökülecek olanı seçin."
+            )
+        elif tracks:
+            self.audio_track_hint.setText("Tek ses kanalı.")
+        else:
+            self.audio_track_hint.setText("Video seçilince kanallar listelenir.")
+
+    @staticmethod
+    def _audio_track_label(track: dict) -> str:
+        parts = [f"#{track.get('audio_index', 0) + 1}"]
+        if track.get("language"):
+            parts.append(str(track["language"]))
+        if track.get("title"):
+            parts.append(str(track["title"]))
+        if track.get("codec"):
+            parts.append(str(track["codec"]))
+        if track.get("channels"):
+            parts.append(f"{track['channels']} kanal")
+        if track.get("default"):
+            parts.append("[varsayılan]")
+        if track.get("audio_index") == 0:
+            parts.append("(ilk kanal)")
+        return " · ".join(parts)
 
     @staticmethod
     def _stream_label(stream: dict) -> str:
@@ -1448,6 +1520,7 @@ class MainWindow(QMainWindow):
             overwrite=self.overwrite_check.isChecked(),
             source_lang=self.srt_lang_combo.currentData() or "",
             glossary_path=self._glossary_path,
+            audio_stream_index=int(self.audio_track_combo.currentData() or 0),
         )
 
     def _preflight(self, needs_engine: bool = True) -> bool:

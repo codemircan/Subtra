@@ -261,6 +261,43 @@ def has_audio_stream(ffprobe: str, path: str | Path) -> bool:
     return any(s.get("codec_type") == "audio" for s in info.get("streams", []))
 
 
+def audio_streams(ffprobe: str, path: str | Path) -> list[dict]:
+    """Ses akislarini sirali listeler.
+
+    `audio_index` 0 tabanlidir ve `-map 0:a:<n>` icin kullanilir; `index`
+    ise dosyadaki genel akis indeksidir (ffprobe'un verdigi deger).
+    """
+    info = probe_media(ffprobe, path)
+    tracks: list[dict] = []
+    audio_index = 0
+    for stream in info.get("streams", []):
+        if stream.get("codec_type") != "audio":
+            continue
+        tags = stream.get("tags") or {}
+        disposition = stream.get("disposition") or {}
+        try:
+            index = int(stream.get("index", 0))
+        except (TypeError, ValueError):
+            index = 0
+        try:
+            channels = int(stream.get("channels") or 0)
+        except (TypeError, ValueError):
+            channels = 0
+        tracks.append(
+            {
+                "audio_index": audio_index,
+                "index": index,
+                "codec": (stream.get("codec_name") or "").strip().lower(),
+                "channels": channels,
+                "language": (tags.get("language") or "").strip().lower(),
+                "title": (tags.get("title") or "").strip(),
+                "default": bool(disposition.get("default")),
+            }
+        )
+        audio_index += 1
+    return tracks
+
+
 def has_video_stream(ffprobe: str, path: str | Path) -> bool:
     info = probe_media(ffprobe, path)
     return any(
@@ -536,17 +573,24 @@ def extract_audio(
     duration: float,
     progress_cb: ProgressCB = None,
     cancel_event: threading.Event | None = None,
+    audio_index: int = 0,
 ) -> Path:
-    """Sesi 16 kHz mono PCM WAV olarak cikarir."""
+    """Sesi 16 kHz mono PCM WAV olarak cikarir.
+
+    `audio_index` videodaki kacinci ses kanalinin okunacagi (0 tabanli).
+    Varsayilan 0 (ilk kanal). Gecersiz indeks net hata verir; ffmpeg'in
+    ham "stream map" mesaji kullaniciya gosterilmez.
+    """
     dest = Path(dest_wav)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    track = max(0, int(audio_index))
     cmd = [
         ffmpeg,
         "-i",
         str(source),
         "-vn",
         "-map",
-        "0:a:0",
+        f"0:a:{track}",
         "-ac",
         "1",
         "-ar",
@@ -560,6 +604,11 @@ def extract_audio(
     except FFmpegError as exc:
         text = str(exc).lower()
         if "does not contain any stream" in text or "stream map" in text:
+            if track > 0:
+                raise FFmpegError(
+                    f"Seçilen ses kanalı bulunamadı (#{track + 1}).\n"
+                    "Videoda bu numarada bir ses kanalı yok; başka bir kanal seçin."
+                ) from exc
             raise FFmpegError(
                 "Bu videoda ses kanalı bulunamadı. Altyazı üretmek için ses "
                 "içeren bir video seçin."

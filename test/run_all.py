@@ -30,6 +30,8 @@ TESTS = [
     ("Dokümantasyon", ["test/test_docs.py"], False),
     ("Başlatma (DPI / konsol)", ["test/test_startup.py"], False),
     ("Altyazı birim testleri", ["test/test_subtitles.py"], False),
+    ("Transcriber birimleri", ["test/test_transcriber_units.py"], False),
+    ("Ses kanalı seçimi", ["test/test_audio_select.py"], False),
     ("Donanım / bellek", ["test/test_hardware.py"], False),
     ("Çoklu ses kanalı", ["test/test_audio_tracks.py"], False),
     ("Terim sözlüğü (birim)", ["test/test_glossary.py"], False),

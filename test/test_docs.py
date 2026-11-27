@@ -53,6 +53,8 @@ for name in (
     "test/test_packaging.py",
     "test/test_model_guard.py",
     "test/test_icon.py",
+    "test/test_audio_select.py",
+    "test/test_transcriber_units.py",
 ):
     check(f"EN belgeli: {name}", name in EN)
     check(f"TR belgeli: {name}", name in TR)

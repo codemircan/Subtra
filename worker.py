@@ -99,6 +99,7 @@ class JobSettings:
     input_srt: str = ""               # dolu ise transkripsiyon atlanir
     source_lang: str = ""             # SRT ice aktarmada kaynak dil (bos = tahmin)
     glossary_path: str = ""           # terim sozlugu dosyasi (bos = kapali)
+    audio_stream_index: int = 0       # kacinci ses kanali okunacak (0 tabanli)
 
     def resolved_pipeline(self) -> bool:
         if self.pipeline_mode == "on":
@@ -721,6 +722,7 @@ class JobRunner:
 
         wav_path = self._temp_dir / "audio.wav"
         self._stage("Ses çıkarılıyor", P_PREPARE_END)
+        audio_index = max(0, int(settings.audio_stream_index or 0))
         ffmpeg_utils.extract_audio(
             ffmpeg,
             source,
@@ -728,7 +730,10 @@ class JobRunner:
             duration,
             progress_cb=lambda f: self.hooks.progress(self._map(f, P_PREPARE_END, P_AUDIO_END)),
             cancel_event=self._cancel,
+            audio_index=audio_index,
         )
+        if audio_index:
+            self.hooks.log(f"Ses kanalı: #{audio_index + 1} (ilk kanal değil)")
         self.hooks.log(
             f"Ses çıkarıldı: {wav_path.name} ({wav_path.stat().st_size / 1024 / 1024:.1f} MB)"
         )

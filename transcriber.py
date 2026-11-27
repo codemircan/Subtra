@@ -637,6 +637,14 @@ def transcribe_audio(
 
             start = offset + float(segment.start)
             end = offset + float(segment.end)
+
+            # word_timestamps=False iken faster-whisper `words` dondurmez.
+            # O durumda segment metnini kelimelere bolup sureyi karakter
+            # agirligina gore dagitiyoruz; aksi halde alt yazi hatti bos
+            # kalir ve is "konusma bulunamadi" ile biter (gercek bug).
+            if not words and text:
+                words = _pseudo_words(text, start, end)
+
             chunk_words.append(
                 {
                     "start": start,
@@ -687,6 +695,36 @@ def transcribe_audio(
         "chunk_seconds": chunk_seconds,
     }
     return meta, segments
+
+
+def _pseudo_words(text: str, start: float, end: float) -> list[dict]:
+    """Kelime damgasi yokken segment metnini kelimelere boler.
+
+    Sure, karakter agirligina gore dagitilir. Amac gercek kelime zamanlamasi
+    degil, alt yazi hattinin (satir sarma, CPS, cue uretimi) calismasidir.
+    """
+    tokens = [token for token in (text or "").split() if token]
+    if not tokens:
+        return []
+    span = max(0.0, float(end) - float(start))
+    if span <= 0:
+        span = max(0.3, 0.3 * len(tokens))
+    weights = [len(token) + 1 for token in tokens]
+    total = float(sum(weights))
+    words: list[dict] = []
+    cursor = float(start)
+    for token, weight in zip(tokens, weights):
+        length = span * weight / total
+        words.append(
+            {
+                "text": token,
+                "start": cursor,
+                "end": cursor + max(0.02, length),
+                "probability": 0.0,
+            }
+        )
+        cursor += length
+    return words
 
 
 def flatten_words(segments: list[dict]) -> list[dict]:

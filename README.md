@@ -144,6 +144,29 @@ git checkout main            # stable release
 
 ---
 
+## What's new in 2.5
+
+**Audio track selection**
+- A video with several audio tracks (e.g. Turkish + English dub) can now be
+  transcribed from **any** track, not just the first. The Video tab lists every
+  track with its language, title, codec and channel count; the choice is
+  remembered between runs.
+- Verified end-to-end: a file with a 200 Hz tone on track 1 and speech on
+  track 2 produces "no speech found" for track 1 and a correct transcript for
+  track 2. Picking a track that does not exist gives a clear message instead of
+  raw FFmpeg output.
+- Burn-in and soft-subtitle output still keep **all** audio tracks, as before.
+
+**Fixed**
+- **Turning off word-level timestamps broke every job.** With
+  `word_timestamps=False` faster-whisper returns no `words`, so the subtitle
+  pipeline received nothing and every run ended with "no speech found". Segment
+  text is now split into pseudo-words (duration distributed by character
+  weight), so the option works as advertised — ~15% faster, slightly coarser
+  cue splits.
+
+---
+
 ## Features
 
 - Automatic language detection (Whisper) with a confidence readout
@@ -162,6 +185,7 @@ git checkout main            # stable release
 - All heavy work runs in a `QThread` — the UI never freezes
 - **Terminology glossary** — keep names/terms exact across translation
 - **Embedded subtitle import** — reuse subtitles already inside the video
+- **Audio track selection** — pick which dubbing to transcribe in multi-audio files
 - Spaces and non-ASCII characters in paths are fine (UTF-8, never `shell=True`)
 - Temporary files are removed on completion or cancellation
 - Turkish error messages in the UI
@@ -289,9 +313,11 @@ or double-click `calistir.bat`.
 ### Video tab
 1. Drag and drop a video, or use **Choose file…**
 2. **Whisper model** (the recommendation is picked from your hardware)
-3. **Target language**: one of 21
-4. **Output**: burn-in / soft subtitles / `.srt` only
-5. Adjust burn-in styling if needed → **Start**
+3. **Audio track** — if the file has more than one, pick which dubbing to
+   transcribe (language, title and channel count are shown)
+4. **Target language**: one of 21
+5. **Output**: burn-in / soft subtitles / `.srt` only
+6. Adjust burn-in styling if needed → **Start**
 
 If the video already carries subtitles, **Gömülü Altyazı Kullan…** extracts a
 chosen stream to `.srt` and moves it to the **Translate SRT** tab with the
@@ -367,6 +393,8 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 
 ```powershell
 py test/test_subtitles.py        # subtitle engine
+py test/test_transcriber_units.py# pseudo-words when word timestamps are off
+py test/test_audio_select.py     # audio track listing/extraction (needs FFmpeg)
 py test/test_glossary.py         # glossary parsing, protect/restore, Turkish case
 py test/test_glossary_pipeline.py# glossary through the translation flow (fake model)
 py test/test_glossary_ui.py      # glossary picker in Settings
@@ -526,6 +554,7 @@ dist\Subtra\
 | **Black console window stays open, Qt DPI warning** | Launch with `calistir.bat` (uses `pyw`, no console) — fixed in 2.1.2 |
 | Out of memory | Smaller model, `num_workers=1` — the app checks free RAM before loading and refuses `medium` when it would swap |
 | Glossary term not applied | Check the term's source spelling and, if set, its `en>tr` column; the log line reports matched/lost terms |
+| Wrong language detected in a multi-audio file | Pick the right track in **Audio track** on the Video tab; the default is the first track |
 | "This subtitle stream is image-based" | PGS/VobSub cannot be converted to text — use a text stream or an external `.srt` |
 | CI fails on an old tag | Only the exact tag on `HEAD` is compared, so a version bump is safe until you tag |
 
