@@ -224,6 +224,28 @@ Uçtan uca doğrulandı: aynı videonun iki kopyasına satır başına `ALTYAZI_
 `ALTYAZI_B` atandı; iki çıktı sırasıyla `… ALTYAZI_A …` ve `… ALTYAZI_B …`
 üretti, çapraz kullanım olmadı (ikinci iş transkripti önbellekten aldı).
 
+**Düzeltme — RAM kontrolü sığan modelleri reddediyordu**
+
+Boş RAM tahmini ~1.4 GB fazlaydı: 6 GB'lik makinede 1.7 GB boşken `tiny` bile
+reddediliyordu (11 test koşulamıyordu). Bu makinede ölçüldü:
+
+| Bileşen | Ölçüm |
+|---|---|
+| Qt GUI + tiny + NLLB, süreç RSS | **863 MB** |
+| FFmpeg burn-in tepe (1080p, crf 18) | 164 MB (ayrı süreç) |
+| 10 dk WAV dilimi | ~38 MB |
+| **Gerçek toplam ihtiyaç** | **~1.0–1.1 GB** |
+| Eski tahmin | 2430 MB (`110 + 820 + 1500` pay) |
+
+Overhead sabiti **1500 → 400 MB** indirildi (ölçülen FFmpeg tepesinin ~2.4
+katı, büyük videolar için emniyet payı). 2.1 GB boşken kararlar artık
+`tiny`/`base`/`small` **kabul**, `medium` **red** — gerçekle uyuşuyor; `medium`
+bu makineye gerçekten sığmıyor.
+
+`hardware.check_memory()` ayrıca `available_mb` parametresi kazandı; mantık
+makinenin o anki RAM'i yerine sabit değerlerle test ediliyor (eski test makine
+yükliyken kırılıyordu).
+
 ---
 
 ## Özellikler
@@ -711,6 +733,9 @@ donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
   Yol escape'i iki katmanlı: `C\:/...` ve hata durumunda göreli ad + `cwd`.
 - **Yumuşak altyazı**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
 - **SRT**: UTF-8 (BOM'suz), LF, `HH:MM:SS,mmm`.
+- **Bellek**: model yüklemeden önce boş RAM kontrol edilir. Paylar ölçümle
+  kalibre edildi: model tahminleri + 400 MB (Qt/FFmpeg/tampon payı). Ölçülen
+  gerçek toplam (GUI + tiny + NLLB) 863 MB; tahmin 1330 MB (emniyet paylı).
 - **Ses kanalı**: `ffprobe` ses akışlarını `audio_index` (0 tabanlı) ile
   listeler; çıkarma `-map 0:a:<n>` kullanır. Görüntü/çıktı tarafında tüm ses
   kanalları korunur (`-map 0:a?`), yalnızca transkripsiyon kaynağı seçilir.

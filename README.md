@@ -229,6 +229,29 @@ Verified end to end: the same video copied twice, with `ALTYAZI_A` and
 its two outputs, with no cross-contamination (the second job reused the cached
 transcript).
 
+**Fixed — the RAM check refused models that actually fit**
+
+The free-RAM guard overestimated by ~1.4 GB, so on a 6 GB machine with 1.7 GB
+free even `tiny` was refused (11 tests could not run). Measured on this
+machine:
+
+| Component | Measured |
+|---|---|
+| Qt GUI + tiny + NLLB, process RSS | **863 MB** |
+| FFmpeg burn-in peak (1080p, crf 18) | 164 MB (separate process) |
+| 10-minute WAV chunk | ~38 MB |
+| **Actual total needed** | **~1.0–1.1 GB** |
+| Old estimate | 2430 MB (`110 + 820 + 1500` overhead) |
+
+The overhead constant dropped from **1500 MB to 400 MB** (still ~2.4× the
+measured FFmpeg peak, as headroom for larger videos). Decisions at 2.1 GB free
+are now `tiny`/`base`/`small` **allowed**, `medium` **refused** — which matches
+reality; `medium` genuinely does not fit on this machine.
+
+`hardware.check_memory()` also gained an `available_mb` parameter so its logic
+is tested with fixed values instead of the machine's live memory (the old test
+failed whenever the machine was busy).
+
 ---
 
 ## Features
@@ -721,6 +744,9 @@ hardware, FFmpeg, model inventory, settings and the last 200 log lines.
   Path escaping is two-layered: `C\:/...`, and a relative name + `cwd` fallback.
 - **Soft subtitles**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
 - **SRT**: UTF-8 without BOM, LF, `HH:MM:SS,mmm`.
+- **Memory**: free RAM is checked before loading. The allowance is calibrated by
+  measurement: model estimates + 400 MB (Qt/FFmpeg/buffers). Measured total for
+  GUI + tiny + NLLB is 863 MB; the estimate allows 1330 MB.
 - **Glossary**: NLLB-safe placeholders `[[G<n>]]` (verified: `[[0]]` and
   `__0__` survive, `⟦0⟧`/`«0»` do not). Matching folds `İ/ı/I` to `i`
   length-preservingly so offsets stay valid; unresolved terms are restored by a
