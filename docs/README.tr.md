@@ -34,7 +34,7 @@ git checkout main            # kararlı sürüm
 
 ---
 
-## 2.0'da neler yeni
+## 2.0–2.3'te neler yeni
 
 **Dağıtım ve kararlılık**
 - FFmpeg artık elle kurulmuyor: exe'ye gömülü varsa kullanılır, yoksa
@@ -102,6 +102,40 @@ git checkout main            # kararlı sürüm
 
 ---
 
+## 2.4'te neler yeni
+
+**Terim sözlüğü**
+- TSV terim listesi (`kaynak<TAB>hedef`, isteğe bağlı `en>tr` sütunu) marka ve
+  teknik terimleri çevirmenin elinden alır. Terimler çeviriden önce NLLB'nin
+  koruduğu `[[G0]]` yer tutucularına çevrilir, sonra hedef karşılıklar yazılır.
+  Yer tutucu kaybolursa terim doğrudan değiştirilir; `.srt` dosyasına asla
+  `[[G0]]` sızmaz. Şablon: `docs/glossary-ornek.tsv`.
+- Büyük/küçük harf eşleşmesi Türkçe `İ/ı/I` sorununu konumları kaydırmadan
+  çözer; `C++`, `(beta)` gibi regex karakterleri birebir eşleşir.
+
+**Gömülü altyazı içe aktarma**
+- Video sekmesindeki **Gömülü Altyazı Kullan…** videonun içindeki altyazı
+  akışlarını listeler (`subrip`, `ass`, `mov_text`…), seçileni `.srt` olarak
+  çıkarır ve kaynak dili seçili şekilde **SRT Çevir** sekmesine taşır.
+- Görüntü tabanlı akışlar (PGS / VobSub / DVB) boş dosya üretmek yerine net
+  bir hata mesajıyla reddedilir.
+
+**Paketleme ve CI**
+- `pyproject.toml` (PEP 621, sürüm `version.py`'den) + `subtra` GUI girişi.
+- GitHub Actions (`windows-latest`): ruff (yalnızca gerçek hatalar),
+  `compileall` ve model indirme kapalıyken tüm test paketi.
+- `assets/app.ico` (7 boyut, `tools/make_icon.py` ile üretilir) pencere ve exe
+  simgesi.
+
+**Düzeltmeler**
+- `translator.ensure_nllb_model()` `SUBTRA_NO_DOWNLOAD=1` ve model yokken
+  temiz mesaj yerine `NameError` veriyordu.
+- Sürüm testi *en yakın* etiketi karşılaştırdığı için her sürüm yükseltmesinde
+  etiket atılana kadar düşüyordu; artık yalnızca `HEAD` üzerindeki tam etikete
+  bakar.
+
+---
+
 ## Özellikler
 
 - Otomatik dil tespiti (Whisper) + güven oranı göstergesi
@@ -117,6 +151,8 @@ git checkout main            # kararlı sürüm
 - Satır başına ≈42 karakter, en fazla 2 satır; kısa altyazılar birleştirilir
 - Aşamalı ilerleme, canlı log paneli, **İptal** düğmesi
 - Tüm ağır işler `QThread` içinde — arayüz donmaz
+- **Terim sözlüğü** — marka/terimleri çeviri boyunca birebir koru
+- **Gömülü altyazı içe aktarma** — videonun içindeki altyazıyı yeniden kullan
 - Boşluklu / Türkçe karakterli yollar sorunsuz (UTF-8, `shell=True` yok)
 - Geçici dosyalar iş sonunda veya iptalde silinir
 - Türkçe hata mesajları
@@ -135,6 +171,7 @@ git checkout main            # kararlı sürüm
 | `subtitles.py` | Kelime tabanlı cue üretimi, satır sarma, CPS, SRT yaz/oku |
 | `transcript_cache.py` | Transkript önbelleği (JSON, atomik, dosya+model anahtarlı) |
 | `subtitle_preview.py` | Render öncesi SRT önizleme/düzenleme diyaloğu |
+| `glossary.py` | Terim sözlüğü: ayrıştırma, yer tutucuyla koruma/geri yazma |
 | `ffmpeg_utils.py` | Ses çıkarma, burn-in, soft-sub, yol escape, disk kontrolü |
 | `ffmpeg_bootstrap.py` | FFmpeg bulma + **otomatik indirme** |
 | `app_paths.py` | `%LOCALAPPDATA%` yolları, eski klasör taşıma |
@@ -246,6 +283,10 @@ veya `calistir.bat` dosyasına çift tıklayın.
 4. **Çıktı**: burn-in / yumuşak altyazı / sadece `.srt`
 5. Burn-in için stil ayarlayın → **Başlat**
 
+Videoda zaten altyazı varsa **Gömülü Altyazı Kullan…** seçilen akışı `.srt`
+olarak çıkarır ve kaynak dili doldurulmuş şekilde **SRT Çevir** sekmesine
+taşır — transkripsiyon gerekmez.
+
 ### Kuyruk sekmesi
 Birden fazla video sürükleyin → **Kuyruğu Başlat**. Her dosya için durum ve
 çıktı adı tabloda görünür; hatada kuyruk devam eder ve sonda özet verilir.
@@ -263,7 +304,24 @@ yumuşak altyazı).
 - **Transkripsiyon + çeviri paralel** — Otomatik / Açık / Kapalı
 - **CPS sınırı** — 0 = kapalı, önerilen 17–20
 - **Kelime düzeyi damga** — daha doğru bölme, ~%15 daha yavaş
+- **Terim sözlüğü** — bir `.tsv` seçin (şablon: `docs/glossary-ornek.tsv`);
+  etkin terim sayısı gösterilir ve seçim hatırlanır
 - **FFmpeg**, **çeviri motoru**, **model önbelleği** yönetimi
+
+### Terim sözlüğü dosyası
+
+```
+# '#' ile başlayan satırlar yorumdur
+OpenAI	OpenAI
+machine translation	makine çevirisi
+benchmark	karşılaştırma testi	en>tr
+prompt -> komut
+```
+
+Satır başına bir terim: `kaynak<TAB>hedef` (veya `kaynak -> hedef`). Üçüncü
+sütun isteğe bağlıdır ve terimi tek bir dil çiftine kısıtlar. Uzun terim kısa
+terimden önce gelir, harf/rakamla başlayan terimlerde tam kelime eşleşmesi
+aranır, markalar olduğu gibi geçer.
 
 ### Çıktılar
 
@@ -299,16 +357,31 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 ### C. Birim testleri (ağ/model gerekmez)
 
 ```powershell
-py test/test_subtitles.py        # altyazı motoru
-py test/test_cache_and_batch.py  # transkript önbelleği + batch (~80 sn)
-py test/test_version.py          # sürüm tek kaynak
-py test/test_download_resume.py  # HTTP Range ile devam ettirme (yerel sunucu)
-py test/test_logging.py          # log dosyası + panelde tekrar yok
+py test/test_subtitles.py         # altyazı motoru
+py test/test_glossary.py          # sözlük ayrıştırma, koruma/geri yazma, Türkçe harf
+py test/test_glossary_pipeline.py # sözlük + çeviri akışı (sahte model)
+py test/test_glossary_ui.py       # Ayarlar'daki sözlük seçimi
+py test/test_subtitle_import.py   # gömülü akış listeleme/çıkarma (FFmpeg gerekir)
+py test/test_packaging.py         # pyproject + CI tutarlılığı
+py test/test_model_guard.py       # SUBTRA_NO_DOWNLOAD temiz hata verir
+py test/test_icon.py              # assets/app.ico geçerli + bağlı
+py test/test_cache_and_batch.py   # transkript önbelleği + batch (~80 sn)
+py test/test_version.py           # sürüm tek kaynak
+py test/test_download_resume.py   # HTTP Range ile devam ettirme (yerel sunucu)
+py test/test_logging.py           # log dosyası + panelde tekrar yok
 ```
 
 `test_download_resume.py` yerel bir HTTP sunucusu açar, aktarımı yarıda keser
 ve `.part` dosyasının korunduğunu, `Range` başlığının gönderildiğini ve son
 SHA256'nın eşleştiğini doğrular. İnternet gerekmez.
+
+### C2. CI
+
+`.github/workflows/ci.yml` her push ve pull request'te `windows-latest`
+üzerinde çalışır: `ruff check .` (yalnızca gerçek hatalar — sözdizimi, tanımsız
+isim), `compileall`, sonra `SUBTRA_NO_DOWNLOAD=1` ve
+`QT_QPA_PLATFORM=offscreen` ile `test/run_all.py`. Modele bağlı testler `SKIP`
+verir; iş tek bir model indirmeden yeşil kalır.
 
 ### D. Motor ve FFmpeg
 
@@ -439,8 +512,10 @@ dist\Subtra\
 | **Karanlık sahnelerde bloklanma/piksellesme** | Burn-in CRF'i 16–18 yapın; eski sürüm 20 kullanıyordu |
 | Arayüz bulanık | Windows ölçekleme %100–150 |
 | **Siyah cmd penceresi açık kalıyor, Qt DPI uyarısı** | `calistir.bat` ile başlatın (`pyw` kullanır, konsol açılmaz) — 2.1.2'de düzeltildi |
-| Bellek yetersiz | Daha küçük model, `num_workers=1` — uygulama artık model
-yüklemeden önce boş RAM'i kontrol eder ve takasa girecekse `medium`'ı reddeder |
+| Bellek yetersiz | Daha küçük model, `num_workers=1` — uygulama model yüklemeden önce boş RAM'i kontrol eder ve takasa girecekse `medium`'ı reddeder |
+| Sözlük terimi uygulanmadı | Terimin kaynak yazımını ve varsa `en>tr` sütununu kontrol edin; logda eşleşen/kaybolan terim sayısı yazar |
+| "Bu altyazı akışı görüntü tabanlı" | PGS/VobSub metne çevrilemez — metin tabanlı bir akış veya harici `.srt` kullanın |
+| CI eski etikette düşüyor | Yalnızca `HEAD` üzerindeki tam etiket karşılaştırılır; sürüm yükseltmesi etiket atılana kadar güvenlidir |
 
 Sorun bildirirken **Hata Raporunu Kopyala** düğmesini kullanın; sürüm, sistem,
 donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
@@ -522,8 +597,21 @@ donanım, FFmpeg, model envanteri, ayarlar ve son 200 log satırı eklenir.
   Yol escape'i iki katmanlı: `C\:/...` ve hata durumunda göreli ad + `cwd`.
 - **Yumuşak altyazı**: `.mp4` → `mov_text`, `.mkv` → `srt`, `-c copy`.
 - **SRT**: UTF-8 (BOM'suz), LF, `HH:MM:SS,mmm`.
+- **Terim sözlüğü**: NLLB'nin koruduğu `[[G<n>]]` yer tutucuları (ölçüldü:
+  `[[0]]` ve `__0__` aynen geçer, `⟦0⟧`/`«0»` bozulur). Eşleşmede `İ/ı/I`
+  uzunluk korunarak `i`'ye katlanır, böylece konumlar kaymaz; çözülemeyen
+  terimler ikinci geçişte birebir değiştirilir ve logda raporlanır.
+- **Gömülü altyazı**: `ffprobe` akışları listeler, `ffmpeg -map 0:<i> -c:s srt`
+  çıkarır. Metin codec'leri beyaz listededir; PGS/VobSub/DVB reddedilir.
 - **İptal**: `threading.Event`; FFmpeg süreci sonlandırılır, dilim döngüsü
   her adımda kontrol eder, geçici dosyalar silinir.
+
+### Kapsam dışı
+
+- **Konuşmacı ayrımı (diarization).** PyTorch ve hesap gerektiren, yüzlerce MB
+  indirilen pyannote ağırlıkları (Hugging Face token'ı) gerekir; bu proje
+  bilinçli olarak küçük, CPU-only ve hesapsız bir bağımlılık kümesiyle çalışır.
+  Altyazı yalnızca metin + zamanlamadır.
 
 ---
 

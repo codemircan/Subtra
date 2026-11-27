@@ -33,6 +33,10 @@ def main() -> int:
         window._refresh_ffmpeg_status(silent=True)
         window._refresh_hardware()
 
+    sample = Path(__file__).resolve().parent.parent / "docs" / "glossary-ornek.tsv"
+    if sample.exists():
+        window._set_glossary(str(sample), announce=False)
+
     def capture() -> None:
         names = ["tab_video", "tab_queue", "tab_srt", "tab_settings"]
         for index, name in enumerate(names):
@@ -40,6 +44,15 @@ def main() -> int:
             QApplication.processEvents()
             window.grab().save(str(OUT / f"gui_{name}.png"))
             print("saved", name)
+
+        # Ayarlar sekmesinde terim sozlugu kutusu en altta: tam gorunume getir.
+        window.tabs.setCurrentIndex(3)
+        page = window.tabs.currentWidget()
+        if hasattr(page, "ensureWidgetVisible"):
+            page.ensureWidgetVisible(window.glossary_label, 60, 220)
+            QApplication.processEvents()
+            window.grab().save(str(OUT / "gui_tab_settings_glossary.png"))
+            print("saved tab_settings_glossary")
         app.quit()
 
     QTimer.singleShot(1200, capture)
