@@ -89,8 +89,24 @@ else:
 
 # 4) Gerçek DPI durumu (Qt sonrası)
 print("\n3) QApplication sonrası DPI farkındalığı")
+offscreen = os.environ.get("QT_QPA_PLATFORM", "").lower() in {
+    "offscreen",
+    "minimal",
+    "vnc",
+}
 if os.name != "nt":
     check("Windows DPI kontrolü", True, "atlandı (Windows değil)")
+elif offscreen:
+    # Offscreen/minimal platform eklentisi pencere sistemi açmadığı için
+    # DPI farkındalığı ayarlamaz. Bu bir ürün hatası değil, ortam farkı:
+    # CI bu değişkenle çalışır. Elle doğrulama: değişken olmadan çalıştırın.
+    check(
+        "DPI kontrolü",
+        True,
+        "atlandı (QT_QPA_PLATFORM="
+        + os.environ.get("QT_QPA_PLATFORM", "")
+        + "; gerçek pencere sistemi gerekir)",
+    )
 else:
     import ctypes
 
