@@ -81,14 +81,21 @@ QUEUE_COLUMNS = ("Dosya", "Hedef dil", "Sözlük", "Durum", "Çıktı")
 # --------------------------------------------------------------------------
 
 class DropArea(QFrame):
-    """Sürükle-bırak alanı (tek veya çoklu dosya)."""
+    """Sürükle-bırak alanı (tek veya çoklu dosya, istege bagli klasor)."""
 
     files_dropped = Signal(list)
     clicked = Signal()
 
-    def __init__(self, hint: str, extensions: set[str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        hint: str,
+        extensions: set[str],
+        parent: QWidget | None = None,
+        allow_folders: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._extensions = extensions
+        self._allow_folders = allow_folders
         self.setAcceptDrops(True)
         self.setFrameShape(QFrame.StyledPanel)
         self.setObjectName("dropArea")
@@ -119,7 +126,12 @@ class DropArea(QFrame):
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 path = url.toLocalFile()
-                if Path(path).suffix.lower() in self._extensions:
+                # Klasor kabul ediliyorsa icerigi BURADA taramayiz: suruklerken
+                # her hareket olayinda agac gezmek arayuzu kilitler.
+                # Genisletme birakma sonrasi (gui.expand_paths) yapilir.
+                if self._allow_folders and Path(path).is_dir():
+                    found.append(path)
+                elif Path(path).suffix.lower() in self._extensions:
                     found.append(path)
         return found
 
@@ -148,6 +160,53 @@ class DropArea(QFrame):
 
     def set_text(self, text: str) -> None:
         self._label.setText(text)
+
+
+def expand_paths(paths: list[str], extensions: set[str]) -> list[str]:
+    """Klasorleri icine alarak desteklenen video dosyalarini dondurur.
+
+    - Klasorler **alt klasorler dahil** taranir (dizi/film arsivleri icin).
+    - Gizli klasorler ('.' veya '~' ile baslayan) atlanir.
+    - Sonuc deterministik: klasor icerigi alfabetik gezer.
+    - Erisim hatasi olan klasor sessizce atlanir (is durmaz).
+    - Olmayan yol ve alakasiz uzanti elenir; tekrar eden yol bir kez girer.
+
+    Bu fonksiyon sürükleme sirasinda DEGIL, birakma sonrasinda cagrilir;
+    boylece buyuk klasorler suruklerken arayuzu kilitlemez.
+    """
+    if not paths:
+        return []
+
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str) -> None:
+        key = os.path.normcase(os.path.abspath(candidate))
+        if key in seen:
+            return
+        seen.add(key)
+        found.append(candidate)
+
+    for raw in paths:
+        if not raw:
+            continue
+        path = Path(raw)
+        if path.is_dir():
+            try:
+                for current, dirnames, filenames in os.walk(path, onerror=lambda _e: None):
+                    # Gizli/system klasorlerini gezme
+                    dirnames[:] = sorted(
+                        name for name in dirnames if not name.startswith((".", "~$"))
+                    )
+                    for name in sorted(filenames):
+                        if Path(name).suffix.lower() in extensions:
+                            add(str(Path(current) / name))
+            except OSError:
+                continue
+        elif path.suffix.lower() in extensions and path.is_file():
+            add(raw)
+
+    return found
 
 
 def _make_hint(text: str) -> QLabel:
@@ -414,8 +473,10 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
 
         self.queue_drop = DropArea(
-            "Birden fazla videoyu buraya bırakın\nveya aşağıdan ekleyin",
+            "Birden fazla videoyu veya bir klasörü buraya bırakın\n"
+            "(klasörün alt klasörleri de taranır) veya aşağıdan ekleyin",
             SUPPORTED_EXTENSIONS,
+            allow_folders=True,
         )
         self.queue_drop.files_dropped.connect(self._add_to_queue)
         self.queue_drop.clicked.connect(self._choose_queue_files)
@@ -1653,6 +1714,11 @@ class MainWindow(QMainWindow):
             self._add_to_queue(files)
 
     def _add_to_queue(self, files: list[str]) -> None:
+        # Klasor birakildiysa icindeki videolari topla (alt klasorler dahil).
+        # Genisletme burada yapilir: surukleme sirasinda tarama yok.
+        dirs = [path for path in files if Path(path).is_dir()]
+        expanded = expand_paths(files, SUPPORTED_EXTENSIONS)
+
         # Anahtar (yol, hedef dil): aynı video farklı dillere eklenebilir,
         # aynı yol+dil ikinci kez eklenmez.
         existing = set()
@@ -1664,9 +1730,7 @@ class MainWindow(QMainWindow):
         default_target = self.target_combo.currentData() or "tr"
         added = 0
         skipped = 0
-        for path in files:
-            if Path(path).suffix.lower() not in SUPPORTED_EXTENSIONS:
-                continue
+        for path in expanded:
             if (path, default_target) in existing:
                 skipped += 1
                 continue
@@ -1688,10 +1752,15 @@ class MainWindow(QMainWindow):
         self.queue_table.resizeRowsToContents()
         self._update_queue_summary()
         if added:
-            self._append_log(f"Kuyruğa {added} dosya eklendi.")
+            source = "klasörden " if dirs else ""
+            self._append_log(f"Kuyruğa {source}{added} dosya eklendi.")
         if skipped:
             self._append_log(
                 f"{skipped} dosya zaten aynı hedef dille kuyrukta; atlandı."
+            )
+        if dirs and not expanded:
+            self._append_log(
+                f"Klasörde desteklenen video bulunamadı: {', '.join(Path(d).name for d in dirs)}"
             )
 
     @staticmethod

@@ -254,6 +254,27 @@ failed whenever the machine was busy).
 
 ---
 
+## What's new in 2.8
+
+**Drop a folder into the queue**
+- Dropping a folder on the Queue tab adds every video inside it, **subfolders
+  included** — the typical `Show/Season 1/Episode 1.mp4` layout works in one
+  drop.
+- Hidden (`.hidden`, `~$`) folders are skipped, results are alphabetical and
+  deterministic, and dropping the same folder again adds nothing (the existing
+  path + target-language duplicate check covers folders too).
+- Permission errors on a subfolder are skipped instead of aborting the drop.
+- A folder with no supported video logs `Klasörde desteklenen video bulunamadı`
+  and adds no rows.
+- The folder is **not scanned during drag**: expansion happens on drop, so a
+  huge tree never freezes the UI while you are still dragging.
+- The single-video tab still rejects folders — it takes one file.
+
+Scope note: there is no separate "Add folder…" button yet; the file dialog
+still picks files. Say the word if you want one.
+
+---
+
 ## Features
 
 - Automatic language detection (Whisper) with a confidence readout
@@ -418,6 +439,11 @@ Per row you can set the **target language** and the **glossary**; select rows
 and use the buttons underneath the table. An empty glossary cell means the
 general glossary from Settings is used.
 
+You can also drop a **folder**: its videos are added, including subfolders.
+Hidden folders (`.…`) are skipped, order is alphabetical, and dropping the same
+folder twice does not duplicate rows. A folder with no videos is reported in the
+log instead of failing silently.
+
 ### Translate SRT tab
 Drop an existing `.srt`. Optionally pick a video (for burn-in or soft
 subtitles). If **source language** is left on auto, it is guessed from the text.
@@ -487,6 +513,7 @@ py test/test_subtitles.py        # subtitle engine
 py test/test_transcriber_units.py# pseudo-words when word timestamps are off
 py test/test_audio_select.py     # audio track listing/extraction (needs FFmpeg)
 py test/test_queue_glossary.py   # per-file glossary in the queue (GUI + real run)
+py test/test_queue_folder_drop.py# drop a folder into the queue (subfolders included)
 py test/test_glossary.py         # glossary parsing, protect/restore, Turkish case
 py test/test_glossary_pipeline.py# glossary through the translation flow (fake model)
 py test/test_glossary_ui.py      # glossary picker in Settings

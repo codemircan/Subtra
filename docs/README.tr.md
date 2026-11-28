@@ -248,6 +248,26 @@ yükliyken kırılıyordu).
 
 ---
 
+## 2.8'de neler yeni
+
+**Kuyruğa klasör bırakma**
+- Kuyruk sekmesine bir klasör bırakınca içindeki tüm videolar, **alt klasörler
+  dahil** eklenir — `Dizi/Sezon 1/1. Bölüm.mp4` düzeni tek bırakmayla gelir.
+- Gizli (`.gizli`, `~$`) klasörler atlanır, sıra alfabetik ve deterministiktir;
+  aynı klasörü ikinci kez bırakmak yeni satır üretmez (mevcut yol + hedef dil
+  tekrar kontrolü klasörleri de kapsar).
+- Bir alt klasörde erişim hatası olursa bırakma iptal olmaz, o klasör atlanır.
+- Desteklenen video bulunmayan klasör logda
+  `Klasörde desteklenen video bulunamadı` diye bildirilir, satır eklenmez.
+- Klasör **sürükleme sırasında taranmaz**: genişletme bırakma anında yapılır,
+  böylece dev bir ağaç sürüklerken arayüz kilitlenmez.
+- Tek video sekmesi klasörü hâlâ reddeder — orası tek dosya içindir.
+
+Kapsam notu: ayrı bir "Klasör ekle…" düğmesi yok; dosya seçme penceresi hâlâ
+dosya seçiyor. İsterseniz eklerim.
+
+---
+
 ## Özellikler
 
 - Otomatik dil tespiti (Whisper) + güven oranı göstergesi
@@ -410,6 +430,11 @@ Satır başına **hedef dil** ve **terim sözlüğü** ayarlanır: satırları s
 tablonun altındaki düğmeleri kullanın. Sözlük hücresi boşsa Ayarlar'daki genel
 sözlük geçerlidir.
 
+Kuyruğa bir **klasör** de bırakabilirsiniz: içindeki videolar, **alt klasörler
+dahil** eklenir. Gizli klasörler (`.…`) atlanır, sıra alfabetiktir ve aynı
+klasörü ikinci kez bırakmak satır çoğaltmaz. Video içermeyen klasör sessizce
+yutulmaz; logda bildirilir.
+
 ### SRT Çevir sekmesi
 Var olan `.srt` dosyasını bırakın. İsterseniz bir video da seçin (burn-in veya
 yumuşak altyazı için). **Kaynak dil** seçilmezse metinden tahmin edilir.
@@ -479,6 +504,7 @@ py -m py_compile main.py gui.py worker.py transcriber.py translator.py subtitles
 py test/test_subtitles.py         # altyazı motoru
 py test/test_transcriber_units.py # kelime damgası kapalıyken sözde kelimeler
 py test/test_audio_select.py      # ses kanalı listeleme/çıkarma (FFmpeg gerekir)
+py test/test_queue_folder_drop.py # kuyruğa klasör bırakma (alt klasörler dahil)
 py test/test_queue_glossary.py    # kuyrukta dosya başına sözlük (GUI + gerçek iş)
 py test/test_frozen_exe.py        # run_all'da YOK: exe'yi derler, içinden transkripsiyon yapar
 py test/test_glossary.py          # sözlük ayrıştırma, koruma/geri yazma, Türkçe harf
